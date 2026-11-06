@@ -1,11 +1,11 @@
 """
-Seite des Hardware-Monitors in der Toolbox-GUI (Bausteine aus toolbox/base.py).
+Page of the Hardware Monitor in the Toolbox GUI (building blocks from toolbox/base.py).
 
-Die Toolbox läuft ohne Adminrechte, hardware_monitor mit. Deshalb:
-  - Status, Beenden und "Einstellungen neu laden" gehen über eine lokale Verbindung (IPC_PORT),
-  - Starten geht über die geplante Aufgabe (keine UAC-Abfrage) oder notfalls direkt mit UAC-Abfrage,
-  - Einstellungen schreibt die Toolbox in data\\hardware_monitor.json und sagt hardware_monitor dann "reload".
-Alle Texte stehen in i18n.json – hier steht nur ihre ID: t("seite.…") (siehe toolbox\\i18n.py).
+The Toolbox runs without admin rights, hardware_monitor with them. That's why:
+  - status, quitting and "reload settings" go via a local connection (IPC_PORT),
+  - starting goes via the scheduled task (no UAC prompt) or, if need be, directly with a UAC prompt,
+  - the Toolbox writes settings to data\\hardware_monitor.json and then tells hardware_monitor "reload".
+All texts are in i18n.json – only their ID is here: t("page.…") (see toolbox\\i18n.py).
 """
 
 import json
@@ -13,36 +13,36 @@ import socket
 import sys
 import time
 from pathlib import Path
+from tkinter import messagebox
 
 import winutil
-from base import BAD, GOOD, MUTED, WARN, Button, Buttons, Choice, Combo, Program, Section, Slider, Switch, Text, ToolPage
+from base import (BAD, GOOD, MUTED, WARN, Button, Buttons, Choice, Combo, Entry, Program, Section, Slider, Switch,
+                  Text, ToolPage)
 
 FOLDER = Path(__file__).resolve().parent
 sys.path.append(str(FOLDER))
-# Startwerte, Raten, Port, Aufgabe, Laden/Speichern, Texte – gemeinsam mit hardware_monitor.py
+# Defaults, rates, port, task, loading/saving, texts – shared with hardware_monitor.py
 import hardware_monitor_settings as hm  # noqa: E402
-from hardware_monitor_settings import t  # noqa: E402
+from hardware_monitor_settings import num, short_num, t  # noqa: E402
+import energy  # noqa: E402  (power consumption: file and adding up – the logging itself runs in the monitor)
 
-# Von Setup.exe angelegt: der Starter HardwareMonitor.exe (findet runtime\ relativ zu sich, deshalb ohne
-# Argumente) und dahinter pythonw.exe mit eigenem Namen und Symbol – so heißt der Prozess im Task-Manager
-# „Hardware-Monitor“ statt „Python“ (setup\make_exe.py)
-STARTER = FOLDER / hm.AUSWEIS["starter"]
+# Created by Setup.exe: the starter HardwareMonitor.exe (finds runtime\ relative to itself, hence without
+# arguments) and behind it pythonw.exe with its own name and icon – that way the process is called
+# "Hardware Monitor" in Task Manager instead of "Python" (setup\make_exe.py)
+STARTER = FOLDER / hm.MANIFEST["starter"]
 
-
-def sekunden(werte):
-    """(0.5, 1, 2) -> {"0,5 s": 0.5, "1 s": 1, "2 s": 2} für die Auswahlknöpfe."""
-    return {f"{w:g} s".replace(".", ","): w for w in werte}
-
-
-ICON_RATES = sekunden(hm.ICON_RATES)
-POPUP_RATES = sekunden(hm.POPUP_RATES)
-# Sensornamen von LibreHardwareMonitor – die bleiben englisch; davor steht in der Liste noch „Automatisch“
+# Sensor names of LibreHardwareMonitor – they stay English; in the list "Automatic" comes before them
 CPU_CHOICES = ["Core (Tctl/Tdie)", "CPU Package", "Core Max", "Core Average", "CCD1 (Tdie)", "CCD2 (Tdie)"]
 GPU_CHOICES = ["GPU Core", "GPU Hot Spot", "GPU Memory Junction"]
 
 
+def seconds_choices(values):
+    """(0.5, 1, 2) -> {"0.5 s": 0.5, "1 s": 1, "2 s": 2} for the choice buttons."""
+    return {f"{short_num(v)} s": v for v in values}
+
+
 def ipc(command, timeout=0.6):
-    """Schickt einen Befehl an hardware_monitor. Antwort als dict – oder None, wenn es nicht läuft."""
+    """Sends a command to hardware_monitor. Answer as a dict – or None if it isn't running."""
     try:
         with socket.create_connection(("127.0.0.1", hm.IPC_PORT), timeout=timeout) as conn:
             conn.sendall(command.encode("utf-8") + b"\n")
@@ -69,42 +69,42 @@ def same_path(a, b):
 
 
 def task_points_here(info):
-    """Startet die Aufgabe wirklich diesen Monitor – den Starter ohne Argumente – und nicht z. B. den Ort, an dem der
-    Ordner vor dem Verschieben lag? (Dasselbe prüft setup.ps1 in Schritt 6.)"""
+    """Does the task really start this monitor – the starter without arguments – and not e.g. the place where the
+    folder was before it was moved? (setup.ps1 checks the same in step 6.)"""
     return same_path(info.get("execute") or "", STARTER) and not (info.get("arguments") or "").strip()
 
 
-# ---------- Programm steuern (auch für „Toolbox und alle Programme“ in den Toolbox-Einstellungen) ----------
-# Alle blockieren eine Weile – nur im Hintergrund aufrufen (app.run_async).
-def laeuft():
+# ---------- Controlling the program (also for "Toolbox and all programs" in the Toolbox settings) ----------
+# All of them block for a while – only call them in the background (app.run_async).
+def is_running():
     return ipc("status") is not None
 
 
-def beenden():
-    """Bittet das Programm, sich zu beenden, und wartet aufs Prozessende (sonst scheitert ein direkter Neustart)."""
+def stop_program():
+    """Asks the program to quit and waits for the process to end (otherwise a direct restart fails)."""
     status = ipc("status")
     if status is None:
         return True
     ipc("quit")
     if winutil.wait_for_exit(status.get("pid"), timeout=10):
         return True
-    for _ in range(50):                          # Rückfall: warten, bis es nicht mehr antwortet (bis zu 5 s)
+    for _ in range(50):                          # fallback: wait until it no longer answers (up to 5 s)
         if ipc("status", timeout=0.2) is None:
             return True
         time.sleep(0.1)
     return False
 
 
-def starten():
-    """Über die geplante Aufgabe (ohne Nachfrage) – oder, wenn es keine passende gibt, direkt mit UAC-Abfrage."""
-    info = winutil.task_info(hm.AUFGABE)
-    if info and info.get("state") != "Disabled" and task_points_here(info) and winutil.run_task(hm.AUFGABE):
+def start_program():
+    """Via the scheduled task (without a prompt) – or, if there's no matching one, directly with a UAC prompt."""
+    info = winutil.task_info(hm.TASK)
+    if info and info.get("state") != "Disabled" and task_points_here(info) and winutil.run_task(hm.TASK):
         return True
     return winutil.run_elevated(str(STARTER), cwd=str(FOLDER))
 
 
-def neu_laden():
-    """Einstellungen und Sprache neu einlesen lassen (z. B. nach einem Sprachwechsel in der Toolbox)."""
+def reload_program():
+    """Let it read settings and language again (e.g. after a language switch in the Toolbox)."""
     ipc("reload")
 
 
@@ -113,84 +113,135 @@ class HardwareMonitorPage(ToolPage):
     defaults = hm.DEFAULT_SETTINGS
     visible = False
     poll_job = None
-    running_order = None         # Icon-Reihenfolge, mit der das laufende Programm gestartet wurde
+    running_order = None         # icon order with which the running program was started
+    changed = frozenset()        # keys changed on this page since the last save (see save())
 
     def layout(self):
         grey = {"width": 150, "style": "gray"}
-        auto = {"auto": t("seite.automatisch")}
+        auto = {"auto": t("page.automatic")}
         return [
-            Section(t("seite.status"),
-                    Text(f"●  {t('seite.status.pruefe')}", name="status", size=14),
-                    Buttons(Button(t("seite.starten"), self.start, name="start"),
-                            Button(t("seite.beenden"), self.stop, name="stop"),
-                            Button(t("seite.neu_starten"), self.restart, name="restart")),
-                    Text(f"⚠  {t('seite.starter_fehlt', starter=STARTER)}", name="missing", color=WARN,
+            Section(t("page.status"),
+                    Text(f"●  {t('page.status.checking')}", name="status", size=14),
+                    Buttons(Button(t("page.start"), self.start, name="start"),
+                            Button(t("page.stop"), self.stop, name="stop"),
+                            Button(t("page.restart"), self.restart, name="restart")),
+                    Text(f"⚠  {t('page.starter_missing', starter=STARTER)}", name="missing", color=WARN,
                          hidden=True)),
-            Section(t("seite.autostart"),
-                    Text(t("seite.autostart.text")),
-                    Switch(t("seite.autostart.schalter"), command=self.toggle_autostart, name="autostart"),
+            Section(t("page.autostart"),
+                    Text(t("page.autostart.text")),
+                    Switch(t("page.autostart.switch"), command=self.toggle_autostart, name="autostart"),
                     Text(name="task_label"),
-                    Buttons(Button(t("seite.aufgabe.einrichten"), self.setup_task, name="task_button", width=170))),
-            Section(t("seite.aktualisierung"),
-                    Text(t("seite.aktualisierung.text")),
-                    Choice(t("seite.aktualisierung.icons"), "icon_interval", ICON_RATES),
-                    Choice(t("seite.aktualisierung.fenster"), "popup_interval", POPUP_RATES),
-                    Choice(t("seite.effizienz"), "effizienzmodus",
-                           dict(zip((t("seite.automatisch"), t("seite.effizienz.an"), t("seite.effizienz.aus")),
-                                    hm.EFFIZIENZ)),
-                           info=t("seite.effizienz.info"))),
-            Section(t("seite.anzeige"),
-                    Choice(t("seite.reihenfolge"), "icon_order",
-                           {t("seite.reihenfolge.cpu"): ["cpu", "gpu"], t("seite.reihenfolge.gpu"): ["gpu", "cpu"]}),
-                    Text(t("seite.reihenfolge.hinweis"), name="order_hint", color=WARN, hidden=True),
-                    Combo(t("seite.sensor_cpu"), "cpu_sensor", [auto["auto"], *CPU_CHOICES], names=auto),
-                    Combo(t("seite.sensor_gpu"), "gpu_sensor", [auto["auto"], *GPU_CHOICES], names=auto),
-                    Text(t("seite.sensor.text")),
-                    Text(t("seite.farben.text")),
-                    Slider(t("seite.cpu_gelb"), "cpu_warn_temp", 40, 100, color=WARN),
-                    Slider(t("seite.cpu_rot"), "cpu_hot_temp", 41, 110, color=BAD),
-                    Slider(t("seite.gpu_gelb"), "gpu_warn_temp", 40, 100, color=WARN),
-                    Slider(t("seite.gpu_rot"), "gpu_hot_temp", 41, 110, color=BAD)),
-            Section(t("seite.detailfenster"),
-                    Text(t("seite.detailfenster.text")),
-                    Buttons(Button(t("seite.ordner_oeffnen"), lambda: self.open(FOLDER), width=150, style="gray",
+                    Buttons(Button(t("page.task.set_up"), self.setup_task, name="task_button", width=170))),
+            Section(t("page.refresh"),
+                    Text(t("page.refresh.text")),
+                    Choice(t("page.refresh.icons"), "icon_interval", seconds_choices(hm.ICON_RATES)),
+                    Choice(t("page.refresh.window"), "popup_interval", seconds_choices(hm.POPUP_RATES)),
+                    Choice(t("page.efficiency"), "efficiency_mode",
+                           dict(zip((t("page.automatic"), t("page.efficiency.on"), t("page.efficiency.off")),
+                                    hm.EFFICIENCY_MODES)),
+                           info=t("page.efficiency.info"))),
+            Section(t("page.display"),
+                    Choice(t("page.order"), "icon_order",
+                           {t("page.order.cpu"): ["cpu", "gpu"], t("page.order.gpu"): ["gpu", "cpu"]}),
+                    Text(t("page.order.hint"), name="order_hint", color=WARN, hidden=True),
+                    Combo(t("page.sensor_cpu"), "cpu_sensor", [auto["auto"], *CPU_CHOICES], names=auto),
+                    Combo(t("page.sensor_gpu"), "gpu_sensor", [auto["auto"], *GPU_CHOICES], names=auto),
+                    Text(t("page.sensor.text")),
+                    Text(t("page.colors.text")),
+                    Slider(t("page.cpu_yellow"), "cpu_warn_temp", 40, 100, color=WARN),
+                    Slider(t("page.cpu_red"), "cpu_hot_temp", 41, 110, color=BAD),
+                    Slider(t("page.gpu_yellow"), "gpu_warn_temp", 40, 100, color=WARN),
+                    Slider(t("page.gpu_red"), "gpu_hot_temp", 41, 110, color=BAD)),
+            Section(t("page.privacy"),
+                    Text(t("page.privacy.text")),
+                    Switch(t("page.privacy.switch"), key="privacy_mode")),
+            Section(t("page.power"),
+                    Text(t("page.power.text")),
+                    Switch(t("page.power.switch"), key="energy_logging"),
+                    Text(f"●  {t('page.status.checking')}", name="power_summary"),
+                    Entry(t("page.power.price"), "energy_price", width=90),
+                    Entry(t("page.power.currency"), "energy_currency", width=60),
+                    Slider(t("page.power.other"), "energy_other_watts", *hm.OTHER_WATTS),
+                    Slider(t("page.power.efficiency"), "energy_psu_efficiency", *hm.PSU_EFFICIENCY),
+                    Text(t("page.power.calibrate")),
+                    Buttons(Button(t("page.power.show"), self.show_power, width=150, style="gray"),
+                            Button(t("page.power.delete"), self.delete_power, width=170, style="danger"))),
+            Section(t("page.fans"),
+                    Text(t("page.fans.text")),
+                    Buttons(Button(t("page.fans.show"), lambda: self.show_window("show_fans"), width=170,
+                                   style="gray"))),
+            Section(t("page.detail_window"),
+                    Text(t("page.detail_window.text")),
+                    Buttons(Button(t("page.open_folder"), lambda: self.open(FOLDER), width=150, style="gray",
                                    target=FOLDER))),
-            Section(t("seite.erweitert"),
-                    Buttons(Button(t("seite.log_oeffnen"), lambda: self.open(hm.LOG_FILE), target=hm.LOG_FILE, **grey),
-                            Button(t("seite.einstellungsdatei_oeffnen"), lambda: self.open(self.settings_file),
+            Section(t("page.advanced"),
+                    Buttons(Button(t("page.open_log"), lambda: self.open(hm.LOG_FILE), target=hm.LOG_FILE, **grey),
+                            Button(t("page.open_settings_file"), lambda: self.open(self.settings_file),
                                    target=self.settings_file, **grey),
-                            Button(t("seite.zuruecksetzen"), self.reset, width=150, style="danger"))),
+                            Button(t("page.reset"), self.reset, width=150, style="danger"))),
         ]
 
-    # ---------- Einstellungen ----------
+    # ---------- Settings ----------
     def load(self):
-        return hm.load_settings()                # mit derselben Prüfung wie im Monitor selbst
+        return hm.load_settings()                # with the same check as in the monitor itself
+
+    def save(self):
+        """Only writes what was changed on this page. The monitor changes values itself too (rates and privacy mode
+        in the right-click menu, window position) – an older state shown here must not overwrite them."""
+        fresh = self.load()
+        fresh.update({key: self.data[key] for key in self.changed})
+        self.data, self.changed = fresh, frozenset()
+        self.refresh()
+        super().save()
+
+    def reset(self):
+        self.changed = frozenset(self.defaults)
+        super().reset()
+
+    def set(self, key, value, later=False):
+        """Typed price -> number ("0,35" works too); invalid or unchanged input isn't saved."""
+        if key == "energy_price":
+            price = hm.parse_number(value)
+            if price is None or not 0 <= price < 100:
+                self.refresh(key)                        # show the valid value again
+                self.app.toast(t("page.power.price_invalid"), error=True)
+                return
+            value = round(price, 4)
+        elif key == "energy_currency":
+            value = str(value).strip()[:5]
+        if key in ("energy_price", "energy_currency") and value == self.data.get(key):
+            self.refresh(key)                            # e.g. only left the field
+            return
+        super().set(key, value, later)
 
     def on_change(self, key, value):
-        # gelb muss immer unter rot liegen – den anderen Regler notfalls mitziehen
-        kind, _, art = key.partition("_")                # z. B. "cpu", "warn_temp"
+        self.changed |= {key}
+        # yellow always has to be below red – drag the other slider along if necessary
+        kind, _, limit = key.partition("_")              # e.g. "cpu", "warn_temp"
         warn, hot = f"{kind}_warn_temp", f"{kind}_hot_temp"
-        if art == "warn_temp" and value >= self.data[hot]:
+        if limit == "warn_temp" and value >= self.data[hot]:
             self.data[hot] = value + 1
+            self.changed |= {hot}
             self.refresh(hot)
-        elif art == "hot_temp" and value <= self.data[warn]:
+        elif limit == "hot_temp" and value <= self.data[warn]:
             self.data[warn] = value - 1
+            self.changed |= {warn}
             self.refresh(warn)
         elif key == "icon_order":
             self.update_order_hint()
 
     def on_saved(self):
-        self.app.run_async(neu_laden)
+        self.app.run_async(reload_program)
 
     def update_order_hint(self):
         self.show("order_hint", self.running_order is not None and self.running_order != self.data["icon_order"])
 
-    # ---------- Status und Steuerung ----------
+    # ---------- Status and control ----------
     def on_show(self):
         if self.visible:
             return
         self.visible = True
-        super().on_show()                        # z. B. per Rechtsklick-Menü geänderte Raten übernehmen
+        super().on_show()                        # e.g. take over rates changed via the right-click menu
         self.poll_status()
         self.refresh_task()
 
@@ -207,103 +258,173 @@ class HardwareMonitorPage(ToolPage):
         self.poll_job = self.after(2000, self.poll_status)
 
     def poll_status_soon(self):
-        """Nach Start/Stopp ein paar Mal schnell nachsehen, statt 2 Sekunden zu warten."""
+        """After start/stop look a few times quickly instead of waiting 2 seconds."""
         for delay in (400, 1200, 2500):
             self.after(delay, lambda: self.app.run_async(lambda: ipc("status"), self.show_status))
 
     def show_status(self, status):
         if not self.winfo_exists():
-            return                               # Seite wurde inzwischen neu gebaut (Sprachwechsel)
+            return                               # the page has been rebuilt in the meantime (language switch)
         running = bool(status and status.get("ok"))
         self.running_order = status.get("order") if running else None
-        if running:                              # nur die Icons, die es gibt (ohne GPU-Temperatur kein GPU-Icon)
-            werte = [f"{kind.upper()} {fmt_temp(status.get(kind))}" for kind in status.get("icons", ["cpu", "gpu"])]
-            text = "  ·  ".join([f"●  {t('seite.status.laeuft')}"] + werte)
+        if running:                              # only the icons that exist (without GPU temperature no GPU icon)
+            values = [f"{kind.upper()} {fmt_temp(status.get(kind))}" for kind in status.get("icons", ["cpu", "gpu"])]
+            text = "  ·  ".join([f"●  {t('page.status.running')}"] + values)
         else:
-            text = f"●  {t('seite.status.gestoppt')}"
+            text = f"●  {t('page.status.stopped')}"
         self.w["status"].configure(text=text, text_color=GOOD if running else MUTED)
         self.enable("start", not running)
         self.enable("stop", running)
         self.enable("restart", running)
         self.show("missing", not STARTER.exists())
         self.update_order_hint()
+        privacy = status.get("privacy_mode") if running else None
+        if privacy is not None and privacy != self.data["privacy_mode"] and "privacy_mode" not in self.changed:
+            self.data["privacy_mode"] = privacy      # switched in the detail window or right-click menu
+            self.refresh("privacy_mode")
+        self.show_power_summary(status if running else None)
+
+    # ---------- Power consumption ----------
+    def show_power_summary(self, status):
+        """One line under the switch: now, today, this month, in total. From the running monitor (it has the values
+        of the last minutes, which are only saved every 5 minutes) – otherwise from the file."""
+        if status and status.get("energy"):
+            totals, watts = status["energy"], status.get("power")
+        else:
+            totals, watts = self.file_totals(), None
+        parts = [t("page.power.now", watts=num(watts, 0))] if watts is not None else []
+        for name in ("today", "month", "all"):
+            wh = totals[name][0]
+            if wh:
+                parts.append(t(f"page.power.{name}", energy=energy.fmt_energy(wh, "kWh"),
+                               cost=energy.fmt_cost(wh, self.data)))
+        if totals.get("since"):
+            parts.append(t("page.power.since", since=totals["since"]))
+        logging_on = self.data["energy_logging"]
+        if not parts:
+            text = t("page.power.nothing_yet" if logging_on else "page.power.off")
+        else:
+            text = "  ·  ".join(parts)
+        self.w["power_summary"].configure(text=f"●  {text}", text_color=GOOD if logging_on else MUTED)
+
+    def file_totals(self):
+        """Totals from data\\hardware_monitor_energy.json – read again only when the file has changed."""
+        try:
+            mtime = energy.FILE.stat().st_mtime
+        except OSError:
+            mtime = None
+        if getattr(self, "_file_totals", (None, None))[0] != mtime or mtime is None:
+            self._file_totals = (mtime, energy.totals(energy.EnergyLog().snapshot()))
+        return self._file_totals[1]
+
+    def show_power(self):
+        self.show_window("show_power")
+
+    def show_window(self, command):
+        """Open the detail window on the tab Power ("show_power") or Fans ("show_fans") – only while it runs."""
+        def done(reply):
+            if not reply:
+                self.app.toast(t("page.power.not_running"), error=True)
+
+        self.app.run_async(lambda: ipc(command), done)
+
+    def delete_power(self):
+        if not messagebox.askyesno(t("page.power.delete.title"), t("page.power.delete.question"), parent=self):
+            return
+
+        def delete():
+            if ipc("status") is not None:            # the monitor has the values in memory too – it deletes both
+                reply = ipc("energy_delete")
+                return bool(reply and reply.get("ok"))
+            try:
+                energy.FILE.unlink(missing_ok=True)
+                return True
+            except OSError:
+                return False
+
+        def done(ok):
+            self.app.toast(t("page.power.deleted") if ok else t("page.power.delete_failed"), error=not ok)
+            if self.winfo_exists():
+                self.show_power_summary(None)
+
+        self.app.run_async(delete, done)
 
     def say(self, text):
         self.w["status"].configure(text=f"●  {text}", text_color=MUTED)
 
     def start(self):
         if not STARTER.exists():
-            self.app.toast(t("seite.toast.starter_fehlt", starter=STARTER.name), error=True)
+            self.app.toast(t("page.toast.starter_missing", starter=STARTER.name), error=True)
             return
-        self.say(t("seite.status.startet"))
+        self.say(t("page.status.starting"))
         self.enable("start", False)
 
         def done(ok):
             if not ok:
-                self.app.toast(t("seite.toast.start_fehlgeschlagen"), error=True)
+                self.app.toast(t("page.toast.start_failed"), error=True)
             self.poll_status_soon()
 
-        self.app.run_async(starten, done)
+        self.app.run_async(start_program, done)
 
     def stop(self):
-        self.say(t("seite.status.beendet"))
+        self.say(t("page.status.stopping"))
         self.app.run_async(lambda: ipc("quit"), lambda result: self.poll_status_soon())
 
     def restart(self):
-        self.say(t("seite.status.neustart"))
+        self.say(t("page.status.restarting"))
 
         def done(stopped):
             if stopped:
                 self.start()
             else:
-                self.app.toast(t("seite.toast.reagiert_nicht"), error=True)
+                self.app.toast(t("page.toast.not_responding"), error=True)
 
-        self.app.run_async(beenden, done)
+        self.app.run_async(stop_program, done)
 
     # ---------- Autostart ----------
     def refresh_task(self):
-        task = hm.AUFGABE
+        task = hm.TASK
         self.w["autostart"].configure(state="disabled")
-        self.w["task_label"].configure(text=t("seite.aufgabe.pruefe", task=task), text_color=MUTED)
+        self.w["task_label"].configure(text=t("page.task.checking", task=task), text_color=MUTED)
         self.app.run_async(lambda: winutil.task_info(task), self.show_task)
 
     def show_task(self, info):
         if not self.winfo_exists():
-            return                               # Seite wurde inzwischen neu gebaut (Sprachwechsel)
-        task, switch, label, button = hm.AUFGABE, self.w["autostart"], self.w["task_label"], self.w["task_button"]
+            return                               # the page has been rebuilt in the meantime (language switch)
+        task, switch, label, button = hm.TASK, self.w["autostart"], self.w["task_label"], self.w["task_button"]
         if info is None:
             switch.deselect()
-            button.configure(text=t("seite.aufgabe.einrichten"))
-            label.configure(text=t("seite.aufgabe.fehlt", task=task), text_color=WARN)
+            button.configure(text=t("page.task.set_up"))
+            label.configure(text=t("page.task.missing", task=task), text_color=WARN)
             return
         enabled = info.get("state") != "Disabled"
         switch.configure(state="normal")
         switch.select() if enabled else switch.deselect()
         if task_points_here(info):
-            button.configure(text=t("seite.aufgabe.neu_einrichten"))
-            label.configure(text=t("seite.aufgabe.aktiv" if enabled else "seite.aufgabe.deaktiviert", task=task),
+            button.configure(text=t("page.task.set_up_again"))
+            label.configure(text=t("page.task.enabled" if enabled else "page.task.disabled", task=task),
                             text_color=MUTED)
         else:
-            button.configure(text=t("seite.aufgabe.aktualisieren"))
-            text = t("seite.aufgabe.anderer_ort", task=task, ziel=info.get("execute"), argumente=info.get("arguments"))
+            button.configure(text=t("page.task.update"))
+            text = t("page.task.other_location", task=task, target=info.get("execute"),
+                     arguments=info.get("arguments"))
             label.configure(text=f"⚠  {text}", text_color=WARN)
 
     def setup_task(self):
         if not STARTER.exists():
-            self.app.toast(t("seite.toast.starter_fehlt", starter=STARTER.name), error=True)
+            self.app.toast(t("page.toast.starter_missing", starter=STARTER.name), error=True)
             return
         self.w["task_button"].configure(state="disabled")
-        self.w["task_label"].configure(text=t("seite.aufgabe.richte_ein"), text_color=MUTED)
+        self.w["task_label"].configure(text=t("page.task.setting_up"), text_color=MUTED)
 
         def done(ok):
             if not self.winfo_exists():
                 return
             self.w["task_button"].configure(state="normal")
-            self.app.toast(t("seite.toast.aufgabe_eingerichtet") if ok else t("seite.toast.einrichten_fehlgeschlagen"),
-                           error=not ok)
+            self.app.toast(t("page.toast.task_set_up") if ok else t("page.toast.setup_failed"), error=not ok)
             self.refresh_task()
 
-        self.app.run_async(lambda: winutil.register_task(hm.AUFGABE, STARTER, cwd=FOLDER), done)
+        self.app.run_async(lambda: winutil.register_task(hm.TASK, STARTER, cwd=FOLDER), done)
 
     def toggle_autostart(self):
         enabled = bool(self.w["autostart"].get())
@@ -311,12 +432,12 @@ class HardwareMonitorPage(ToolPage):
 
         def done(ok):
             if not ok:
-                self.app.toast(t("seite.toast.aendern_fehlgeschlagen"), error=True)
+                self.app.toast(t("page.toast.change_failed"), error=True)
             if self.winfo_exists():
                 self.refresh_task()
 
-        self.app.run_async(lambda: winutil.set_task_enabled(hm.AUFGABE, enabled), done)
+        self.app.run_async(lambda: winutil.set_task_enabled(hm.TASK, enabled), done)
 
 
 PAGE = HardwareMonitorPage
-PROGRAM = Program(laeuft, beenden, starten, neu_laden)     # für „Toolbox und alle Programme“ und den Sprachwechsel
+PROGRAM = Program(is_running, stop_program, start_program, reload_program)   # for "Toolbox and all programs" and the language switch

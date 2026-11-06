@@ -1,12 +1,12 @@
 """
-Feste Daten der Hardware für den Tab „Hardwaredaten“: Hersteller, Modell, Hersteller- und Produkt-IDs,
-Seriennummern, Treiber. Gelesen über WMI (Windows-Verwaltungsschnittstelle) per pythonnet – einmal beim Öffnen des
-Fensters, nicht laufend. Braucht keine Adminrechte und kein LibreHardwareMonitor.
+Fixed data of the hardware for the tab "Hardware data": manufacturer, model, vendor and product IDs, serial numbers,
+drivers. Read via WMI (Windows Management Instrumentation) through pythonnet – once when the window opens, not
+continuously. Needs no admin rights and no LibreHardwareMonitor.
 
-Bereiche und Felder stehen hier als ID (z. B. "grafikkarte", "hersteller_id"); ihre Namen und Erklärungen stehen in
-i18n.json (hw.bereich.…, hw.feld.…, hw.erklaerung.…) und werden erst beim Anzeigen bzw. Kopieren eingesetzt.
+Categories and fields are IDs here (e.g. "graphics_card", "vendor_id"); their names and explanations are in
+i18n.json (hw.category.…, hw.field.…, hw.explain.…) and are only filled in when displaying or copying.
 
-Zum Ausprobieren:  python hardware_data.py   -> gibt alles aus, was der Tab zeigen würde
+To try it out:  python hardware_data.py   -> prints everything the tab would show
 """
 
 import ctypes
@@ -17,10 +17,10 @@ import uuid
 from collections import Counter
 from datetime import date
 
-from hardware_monitor_settings import t
+from hardware_monitor_settings import fmt_date, num, t
 
-# PCI-Herstellerkennungen (Auszug: die bei Desktop-PCs häufigsten)
-PCI_HERSTELLER = {
+# PCI vendor IDs (excerpt: the most common ones in desktop PCs)
+PCI_VENDORS = {
     "10DE": "Nvidia", "1002": "AMD", "1022": "AMD", "8086": "Intel", "10EC": "Realtek", "144D": "Samsung",
     "1043": "Asus", "1462": "MSI", "1458": "Gigabyte", "1849": "ASRock", "15B7": "SanDisk / WD", "1B4B": "Marvell",
     "14E4": "Broadcom", "168C": "Qualcomm Atheros", "1969": "Qualcomm Atheros", "1E0F": "Kioxia", "1179": "Toshiba",
@@ -30,8 +30,8 @@ PCI_HERSTELLER = {
     "17AA": "Lenovo", "1025": "Acer", "1B21": "ASMedia", "1D6A": "Aquantia", "14F1": "Conexant / Senary",
     "152D": "Quanta", "1D72": "Xiaomi", "19E5": "Huawei",
 }
-# USB-Herstellerkennungen (Auszug)
-USB_HERSTELLER = {
+# USB vendor IDs (excerpt)
+USB_VENDORS = {
     "046D": "Logitech", "1532": "Razer", "1235": "Focusrite", "056A": "Wacom", "0DB0": "MSI", "1462": "MSI",
     "2E1A": "Insta360", "045E": "Microsoft", "1B1C": "Corsair", "1038": "SteelSeries", "0951": "Kingston",
     "03F0": "HP", "04F2": "Chicony", "05AC": "Apple", "054C": "Sony", "0781": "SanDisk", "0BDA": "Realtek",
@@ -39,38 +39,48 @@ USB_HERSTELLER = {
     "2109": "VIA Labs", "05E3": "Genesys Logic", "0A12": "Cambridge Silicon Radio", "1050": "Yubico",
     "0B95": "ASIX", "18D1": "Google", "04E8": "Samsung", "2717": "Xiaomi",
 }
-# RAM-Hersteller aus dem Anfang der Teilenummer – Windows meldet beim Hersteller oft nur „Unknown“
-RAM_TEILENUMMER = (
+# RAM manufacturer from the start of the part number – Windows often only reports "Unknown" as the manufacturer
+RAM_PART_NUMBERS = (
     (r"F[345]-", "G.Skill"), (r"CM", "Corsair"), (r"KF|KHX|KVR|KCP", "Kingston"), (r"BL|CT", "Crucial"),
     (r"M[34]\d\d", "Samsung"), (r"HM", "SK Hynix"), (r"MTA", "Micron"), (r"A[XD][45]", "ADATA"),
 )
-RAM_TYPEN = {20: "DDR", 21: "DDR2", 24: "DDR3", 26: "DDR4", 29: "LPDDR3", 30: "LPDDR4", 34: "DDR5", 35: "LPDDR5"}
-# Werte mit „hw.wert.…“ sind IDs aus i18n.json, der Rest Namen, die überall gleich heißen (siehe anzeige())
-RAM_BAUFORMEN = {8: "hw.wert.dimm", 12: "hw.wert.sodimm"}     # Win32_PhysicalMemory.FormFactor
-NETZ_ARTEN = {14: "hw.wert.lan", 9: "WLAN", 1: "WLAN", 8: "hw.wert.mobilfunk", 10: "Bluetooth"}   # NdisPhysicalMedium
-BUS_TYPEN = {1: "SCSI", 3: "ATA", 7: "USB", 8: "RAID", 9: "iSCSI", 10: "SAS", 11: "SATA", 12: "hw.wert.sd_karte",
+RAM_TYPES = {20: "DDR", 21: "DDR2", 24: "DDR3", 26: "DDR4", 29: "LPDDR3", 30: "LPDDR4", 34: "DDR5", 35: "LPDDR5"}
+# Values starting with "hw.value." are IDs from i18n.json, the rest are names that are the same everywhere (see display())
+RAM_FORM_FACTORS = {8: "hw.value.dimm", 12: "hw.value.sodimm"}     # Win32_PhysicalMemory.FormFactor
+NET_KINDS = {14: "hw.value.lan", 9: "WLAN", 1: "WLAN", 8: "hw.value.mobile", 10: "Bluetooth"}   # NdisPhysicalMedium
+BUS_TYPES = {1: "SCSI", 3: "ATA", 7: "USB", 8: "RAID", 9: "iSCSI", 10: "SAS", 11: "SATA", 12: "hw.value.sd_card",
              17: "NVMe"}
-MEDIEN_TYPEN = {3: "hw.wert.hdd", 4: "SSD"}
-CPU_HERSTELLER = {"AuthenticAMD": "AMD", "GenuineIntel": "Intel"}
-PLATZHALTER = {"", "unknown", "default string", "to be filled by o.e.m.", "none", "not available", "00000000"}
+MEDIA_TYPES = {3: "hw.value.hdd", 4: "SSD"}
+CPU_VENDORS = {"AuthenticAMD": "AMD", "GenuineIntel": "Intel"}
+PLACEHOLDERS = {"", "unknown", "default string", "to be filled by o.e.m.", "none", "not available", "00000000"}
+
+# Privacy mode: these fields (and the computer name when copying everything) are shown and copied as HIDDEN – e.g.
+# for screenshots or forum posts. The real values stay in memory; only display and copying replace them.
+SENSITIVE_FIELDS = {"serial_number", "mac_address", "processor_id"}
+HIDDEN = "████████"
+
+
+def shown(field, value, private):
+    """The value as it is shown and copied: HIDDEN for sensitive fields while privacy mode is on."""
+    return HIDDEN if private and field in SENSITIVE_FIELDS else value
 
 
 # ---------- WMI ----------
-def abfrage(wql, scope=r"root\cimv2"):
-    """Führt eine WMI-Abfrage aus. Ergebnis: Liste von dicts (Werte als Text oder None); bei Fehlern leer."""
+def query(wql, scope=r"root\cimv2"):
+    """Runs a WMI query. Result: list of dicts (values as text or None); empty on errors."""
     try:
-        import clr  # pythonnet – im Hardware-Monitor ohnehin geladen
+        import clr  # pythonnet – loaded in the Hardware Monitor anyway
         clr.AddReference("System.Management")
         from System.Management import ManagementObjectSearcher
         with ManagementObjectSearcher(scope, wql) as searcher:
             return [{p.Name: None if p.Value is None else str(p.Value) for p in obj.Properties}
                     for obj in searcher.Get()]
     except Exception:
-        logging.exception("WMI-Abfrage fehlgeschlagen: %s", wql)
+        logging.exception("WMI query failed: %s", wql)
         return []
 
 
-# ---------- DXCore (Windows-Grafikschnittstelle): integrierte oder eigene GPU? ----------
+# ---------- DXCore (Windows graphics interface): integrated or dedicated GPU? ----------
 class GUID(ctypes.Structure):
     _fields_ = [("bytes", ctypes.c_ubyte * 16)]
 
@@ -79,114 +89,109 @@ class GUID(ctypes.Structure):
         ctypes.memmove(self.bytes, uuid.UUID(text).bytes_le, 16)
 
 
-def com_methode(obj, nr, ergebnis, *argtypes):
-    """Methode Nr. nr eines COM-Objekts, gezählt wie in dxcore_interface.h (0–2: QueryInterface, AddRef, Release)."""
+def com_method(obj, number, result, *argtypes):
+    """Method no. `number` of a COM object, counted as in dxcore_interface.h (0–2: QueryInterface, AddRef, Release)."""
     vtable = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
-    return lambda *args: ctypes.WINFUNCTYPE(ergebnis, ctypes.c_void_p, *argtypes)(vtable[nr])(obj, *args)
+    return lambda *args: ctypes.WINFUNCTYPE(result, ctypes.c_void_p, *argtypes)(vtable[number])(obj, *args)
 
 
-def gpu_arten():
-    """(Hersteller-ID, Produkt-ID, Subsystem) -> „Integriert (im Prozessor)“ / „Extern (eGPU)“ / „Dediziert“.
-    Am Namen lässt sich das nicht erkennen („Intel Arc Graphics“ ist integriert, „Intel Arc A770“ eine Karte)."""
+def gpu_kinds():
+    """(vendor ID, product ID, subsystem) -> "Integrated (in the processor)" / "External (eGPU)" / "Dedicated".
+    The name doesn't tell ("Intel Arc Graphics" is integrated, "Intel Arc A770" a card)."""
     from ctypes import POINTER, byref, c_bool, c_size_t, c_uint32, c_void_p
     HRESULT = ctypes.HRESULT
-    factory, liste = c_void_p(), c_void_p()
+    factory, adapters = c_void_p(), c_void_p()
     ctypes.WinDLL("dxcore").DXCoreCreateAdapterFactory(byref(GUID("78ee5945-c36e-4b13-a669-005dd11c0f06")),
                                                        byref(factory))
-    com_methode(factory, 3, HRESULT, c_uint32, POINTER(GUID), POINTER(GUID), POINTER(c_void_p))(   # CreateAdapterList
-        1, byref(GUID("248e2800-a793-4724-abaa-23a6de1be090")),         # alle GPUs, die rechnen können
-        byref(GUID("526c7776-40e9-459b-b711-f32ad76dfc28")), byref(liste))
-    arten = {}
-    for i in range(com_methode(liste, 4, c_uint32)()):                # GetAdapterCount
+    com_method(factory, 3, HRESULT, c_uint32, POINTER(GUID), POINTER(GUID), POINTER(c_void_p))(    # CreateAdapterList
+        1, byref(GUID("248e2800-a793-4724-abaa-23a6de1be090")),         # all GPUs that can compute
+        byref(GUID("526c7776-40e9-459b-b711-f32ad76dfc28")), byref(adapters))
+    kinds = {}
+    for i in range(com_method(adapters, 4, c_uint32)()):              # GetAdapterCount
         adapter = c_void_p()
-        com_methode(liste, 3, HRESULT, c_uint32, POINTER(GUID), POINTER(c_void_p))(               # GetAdapter
+        com_method(adapters, 3, HRESULT, c_uint32, POINTER(GUID), POINTER(c_void_p))(              # GetAdapter
             i, byref(GUID("f0db4c7f-fe5a-42a2-bd62-f2a6cf6fc83e")), byref(adapter))
-        eigenschaft = com_methode(adapter, 6, HRESULT, c_uint32, c_size_t, c_void_p)               # GetProperty
-        ids, integriert, extern = (c_uint32 * 4)(), c_bool(), c_bool()
-        eigenschaft(3, ctypes.sizeof(ids), ids)                         # HardwareID: Hersteller, Produkt, Subsystem
-        eigenschaft(12, 1, byref(integriert))                           # IsIntegrated
-        eigenschaft(13, 1, byref(extern))                               # IsDetachable
-        arten[(f"{ids[0]:04X}", f"{ids[1]:04X}", f"{ids[2]:08X}")] = (
-            t("hw.wert.integriert") if integriert.value else t("hw.wert.extern") if extern.value
-            else t("hw.wert.dediziert"))
-        com_methode(adapter, 2, c_uint32)()                             # Release
-    com_methode(liste, 2, c_uint32)()
-    com_methode(factory, 2, c_uint32)()
-    return arten
+        get_property = com_method(adapter, 6, HRESULT, c_uint32, c_size_t, c_void_p)               # GetProperty
+        ids, integrated, detachable = (c_uint32 * 4)(), c_bool(), c_bool()
+        get_property(3, ctypes.sizeof(ids), ids)                        # HardwareID: vendor, product, subsystem
+        get_property(12, 1, byref(integrated))                          # IsIntegrated
+        get_property(13, 1, byref(detachable))                          # IsDetachable
+        kinds[(f"{ids[0]:04X}", f"{ids[1]:04X}", f"{ids[2]:08X}")] = (
+            t("hw.value.integrated") if integrated.value else t("hw.value.external") if detachable.value
+            else t("hw.value.dedicated"))
+        com_method(adapter, 2, c_uint32)()                              # Release
+    com_method(adapters, 2, c_uint32)()
+    com_method(factory, 2, c_uint32)()
+    return kinds
 
 
-# ---------- Namen in der gewählten Sprache ----------
-def bereichsname(bereich):
-    """"grafikkarte" -> „Grafikkarte“ bzw. „Graphics card“."""
-    return t(f"hw.bereich.{bereich}")
+# ---------- Names in the chosen language ----------
+def category_name(category):
+    """"graphics_card" -> "Graphics card" (or "Grafikkarte" in German)."""
+    return t(f"hw.category.{category}")
 
 
-def feldname(feld):
-    """"hersteller_id" -> „Hersteller-ID“ bzw. „Vendor ID“."""
-    return t(f"hw.feld.{feld}")
+def field_name(field):
+    """"vendor_id" -> "Vendor ID" (or "Hersteller-ID" in German)."""
+    return t(f"hw.field.{field}")
 
 
-def erklaerung(feld):
-    """Was ein Feld bedeutet (Fußzeile des Fensters) – oder None, wenn es keine Erklärung gibt."""
-    return t(f"hw.erklaerung.{feld}") if f"hw.erklaerung.{feld}" in t else None
+def explanation(field):
+    """What a field means (footer of the window) – or None if there is no explanation."""
+    return t(f"hw.explain.{field}") if f"hw.explain.{field}" in t else None
 
 
-def anzeige(eintrag):
-    """Eintrag aus RAM_BAUFORMEN usw.: eine ID wird übersetzt, ein Name bleibt; None bleibt None."""
-    return t(eintrag) if eintrag and eintrag in t else eintrag
+def display(entry):
+    """Entry from RAM_FORM_FACTORS etc.: an ID gets translated, a name stays; None stays None."""
+    return t(entry) if entry and entry in t else entry
 
 
-# ---------- Helfer ----------
-def wert(text):
-    """Bereinigter Text – oder None für leere Werte und Platzhalter wie „To Be Filled By O.E.M.“."""
+# ---------- Helpers ----------
+def clean(text):
+    """Cleaned-up text – or None for empty values and placeholders like "To Be Filled By O.E.M."."""
     text = (text or "").strip()
-    return None if text.lower() in PLATZHALTER else text
+    return None if text.lower() in PLACEHOLDERS else text
 
 
-def mit_namen(kennung, tabelle):
-    """„10DE“ -> „10DE (Nvidia)“, unbekannte Kennungen bleiben, wie sie sind."""
-    return f"{kennung} ({tabelle[kennung]})" if kennung in tabelle else kennung
+def with_name(code, table):
+    """"10DE" -> "10DE (Nvidia)", unknown codes stay as they are."""
+    return f"{code} ({table[code]})" if code in table else code
 
 
-def zahl(text):
+def to_int(text):
     try:
         return int(text)
     except (TypeError, ValueError):
         return None
 
 
-def num(value, decimals):
-    """Zahl mit deutschem Komma, z. B. num(2.54, 1) -> „2,5“ (auch für die Messwerte im Detailfenster)."""
-    return f"{value:.{decimals}f}".replace(".", ",")
-
-
-def datum(text):
-    """WMI-Datum „20210303000000.000000+000“ -> „03.03.2021“."""
+def wmi_date(text):
+    """WMI date "20210303000000.000000+000" -> "2021-03-03" (German: "03.03.2021")."""
     m = re.match(r"(\d{4})(\d\d)(\d\d)", text or "")
-    return f"{m[3]}.{m[2]}.{m[1]}" if m else None
+    return fmt_date(int(m[1]), int(m[2]), int(m[3])) if m else None
 
 
 def hardware_id(pnp):
-    """„PCI\\VEN_10DE&DEV_2805&…\\4&1FC9…“ -> „PCI\\VEN_10DE&DEV_2805&…“ (ohne den Teil, der nur den Steckplatz angibt)."""
+    """"PCI\\VEN_10DE&DEV_2805&…\\4&1FC9…" -> "PCI\\VEN_10DE&DEV_2805&…" (without the part that only names the slot)."""
     return pnp.rsplit("\\", 1)[0] if pnp and pnp.count("\\") >= 2 else pnp
 
 
-def pci_felder(pnp):
-    """Hersteller-, Produkt- und Subsystem-ID aus einer PCI- oder HD-Audio-Kennung."""
+def pci_fields(pnp):
+    """Vendor, product and subsystem ID from a PCI or HD audio ID."""
     m = re.search(r"VEN_([0-9A-F]{4})&DEV_([0-9A-F]{4})(?:&SUBSYS_([0-9A-F]{8}))?(?:&REV_([0-9A-F]+))?",
                   pnp or "", re.I)
     if not m:
         return []
     ven, dev, subsys, rev = (g.upper() if g else None for g in m.groups())
-    felder = [("hersteller_id", mit_namen(ven, PCI_HERSTELLER)), ("produkt_id", dev)]
+    fields = [("vendor_id", with_name(ven, PCI_VENDORS)), ("product_id", dev)]
     if subsys and subsys != "00000000":
-        # PCI: SUBSYS_<Modell><Hersteller>, Audio-Codecs umgekehrt: SUBSYS_<Hersteller><Modell>
+        # PCI: SUBSYS_<model><vendor>, audio codecs the other way round: SUBSYS_<vendor><model>
         codec = re.match(r"HDAUDIO\\|INTELAUDIO\\FUNC_", pnp, re.I)
         sub_dev, sub_ven = (subsys[4:], subsys[:4]) if codec else (subsys[:4], subsys[4:])
-        felder += [("platinen_hersteller", mit_namen(sub_ven, PCI_HERSTELLER)), ("subsystem_id", sub_dev)]
+        fields += [("board_vendor", with_name(sub_ven, PCI_VENDORS)), ("subsystem_id", sub_dev)]
     if rev:
-        felder.append(("revision", rev))
-    return felder + [("hardware_id", hardware_id(pnp))]
+        fields.append(("revision", rev))
+    return fields + [("hardware_id", hardware_id(pnp))]
 
 
 def usb_ids(pnp):
@@ -194,244 +199,248 @@ def usb_ids(pnp):
     return (m[1].upper(), m[2].upper()) if m else None
 
 
-def ids_felder(pnp):
-    """IDs aus einer PCI- oder USB-Kennung (Netzwerkadapter können beides sein)."""
+def id_fields(pnp):
+    """IDs from a PCI or USB ID (network adapters can be either)."""
     ids = usb_ids(pnp)
     if ids:
-        return [("hersteller_id", mit_namen(ids[0], USB_HERSTELLER)), ("produkt_id", ids[1]),
+        return [("vendor_id", with_name(ids[0], USB_VENDORS)), ("product_id", ids[1]),
                 ("hardware_id", hardware_id(pnp))]
-    return pci_felder(pnp)
+    return pci_fields(pnp)
 
 
-def felder_ohne_leere(felder):
-    return [(name, w) for name, w in felder if w]
+def non_empty(fields):
+    return [(name, value) for name, value in fields if value]
 
 
-# ---------- Die einzelnen Bereiche ----------
-def prozessoren():
-    geraete = []
-    for p in abfrage("SELECT Name, Manufacturer, ProcessorId, NumberOfCores, NumberOfLogicalProcessors, "
-                     "MaxClockSpeed, SocketDesignation, L2CacheSize, L3CacheSize FROM Win32_Processor"):
-        hersteller = wert(p["Manufacturer"])
-        l3 = zahl(p["L3CacheSize"])
-        geraete.append((wert(p["Name"]) or t("hw.name.prozessor"), felder_ohne_leere([
-            ("hersteller", CPU_HERSTELLER.get(hersteller, hersteller)),
-            ("kerne_threads", f"{p['NumberOfCores']} / {p['NumberOfLogicalProcessors']}"),
-            ("grundtakt", f"{p['MaxClockSpeed']} MHz" if zahl(p["MaxClockSpeed"]) else None),
+# ---------- The individual categories ----------
+def processors():
+    devices = []
+    for p in query("SELECT Name, Manufacturer, ProcessorId, NumberOfCores, NumberOfLogicalProcessors, "
+                   "MaxClockSpeed, SocketDesignation, L2CacheSize, L3CacheSize FROM Win32_Processor"):
+        vendor = clean(p["Manufacturer"])
+        l3 = to_int(p["L3CacheSize"])
+        devices.append((clean(p["Name"]) or t("hw.name.processor"), non_empty([
+            ("manufacturer", CPU_VENDORS.get(vendor, vendor)),
+            ("cores_threads", f"{p['NumberOfCores']} / {p['NumberOfLogicalProcessors']}"),
+            ("base_clock", f"{p['MaxClockSpeed']} MHz" if to_int(p["MaxClockSpeed"]) else None),
             ("l3_cache", f"{l3 // 1024} MB" if l3 else None),
-            ("sockel", wert(p["SocketDesignation"])),
-            ("prozessor_id", wert(p["ProcessorId"])),
+            ("socket", clean(p["SocketDesignation"])),
+            ("processor_id", clean(p["ProcessorId"])),
         ])))
-    return geraete
+    return devices
 
 
-def grafikkarten():
+def graphics_cards():
     try:
-        arten = gpu_arten()
-    except Exception:                            # z. B. Windows 10 vor Version 2004 (ohne dxcore.dll): Feld fehlt
-        logging.exception("DXCore: Art der Grafikkarten nicht lesbar")
-        arten = {}
-    geraete = []
-    for g in abfrage("SELECT Name, PNPDeviceID, DriverVersion, DriverDate FROM Win32_VideoController"):
+        kinds = gpu_kinds()
+    except Exception:                            # e.g. Windows 10 before version 2004 (without dxcore.dll): field missing
+        logging.exception("DXCore: kind of graphics cards not readable")
+        kinds = {}
+    devices = []
+    for g in query("SELECT Name, PNPDeviceID, DriverVersion, DriverDate FROM Win32_VideoController"):
         pnp = (g["PNPDeviceID"] or "").upper()
         if not pnp.startswith("PCI\\"):
-            continue                             # virtuelle Anzeigen (Fernwartung, Streaming) weglassen
+            continue                             # leave out virtual displays (remote access, streaming)
         m = re.search(r"VEN_(\w{4})&DEV_(\w{4})(?:&SUBSYS_(\w{8}))?", pnp)
-        art = m and (arten.get(m.groups()) or next((a for ids, a in arten.items() if ids[:2] == m.groups()[:2]), None))
-        geraete.append((wert(g["Name"]) or t("hw.name.grafikkarte"), felder_ohne_leere(
-            [("art", art)] + pci_felder(g["PNPDeviceID"])
-            + [("treiberversion", wert(g["DriverVersion"])), ("treiberdatum", datum(g["DriverDate"]))])))
-    return geraete
+        kind = m and (kinds.get(m.groups()) or next((k for ids, k in kinds.items() if ids[:2] == m.groups()[:2]), None))
+        devices.append((clean(g["Name"]) or t("hw.name.graphics_card"), non_empty(
+            [("kind", kind)] + pci_fields(g["PNPDeviceID"])
+            + [("driver_version", clean(g["DriverVersion"])), ("driver_date", wmi_date(g["DriverDate"]))])))
+    return devices
 
 
-def mainboard():
-    geraete = []
-    for b in abfrage("SELECT Manufacturer, Product, Version, SerialNumber FROM Win32_BaseBoard"):
-        hersteller, modell = wert(b["Manufacturer"]), wert(b["Product"])
-        felder = [("hersteller", hersteller), ("modell", modell), ("version", wert(b["Version"])),
-                  ("seriennummer", wert(b["SerialNumber"]))]
-        for bios in abfrage("SELECT Manufacturer, SMBIOSBIOSVersion, ReleaseDate FROM Win32_BIOS"):
-            felder += [("bios_hersteller", wert(bios["Manufacturer"])),
-                       ("bios_version", wert(bios["SMBIOSBIOSVersion"])), ("bios_datum", datum(bios["ReleaseDate"]))]
-        geraete.append((" ".join(filter(None, (hersteller, modell))) or t("hw.name.mainboard"),
-                        felder_ohne_leere(felder)))
-    return geraete
+def motherboards():
+    devices = []
+    for b in query("SELECT Manufacturer, Product, Version, SerialNumber FROM Win32_BaseBoard"):
+        vendor, model = clean(b["Manufacturer"]), clean(b["Product"])
+        fields = [("manufacturer", vendor), ("model", model), ("version", clean(b["Version"])),
+                  ("serial_number", clean(b["SerialNumber"]))]
+        for bios in query("SELECT Manufacturer, SMBIOSBIOSVersion, ReleaseDate FROM Win32_BIOS"):
+            fields += [("bios_vendor", clean(bios["Manufacturer"])),
+                       ("bios_version", clean(bios["SMBIOSBIOSVersion"])), ("bios_date", wmi_date(bios["ReleaseDate"]))]
+        devices.append((" ".join(filter(None, (vendor, model))) or t("hw.name.motherboard"), non_empty(fields)))
+    return devices
 
 
-def arbeitsspeicher():
-    geraete, verloetet = [], {}
-    for r in abfrage("SELECT Manufacturer, PartNumber, SerialNumber, BankLabel, DeviceLocator, Capacity, Speed, "
-                     "ConfiguredClockSpeed, SMBIOSMemoryType, FormFactor FROM Win32_PhysicalMemory"):
-        teil = wert(r["PartNumber"])
-        hersteller = herstellername = wert(r["Manufacturer"])
-        if not hersteller and teil:
-            herstellername = next((name for muster, name in RAM_TEILENUMMER if re.match(muster, teil)), None)
-            hersteller = t("hw.wert.laut_teilenummer", hersteller=herstellername) if herstellername else None
-        groesse = zahl(r["Capacity"]) or 0
-        typ = RAM_TYPEN.get(zahl(r["SMBIOSMemoryType"]))
-        eingestellt, maximal = zahl(r["ConfiguredClockSpeed"]), zahl(r["Speed"])
-        name = " ".join(filter(None, (herstellername, teil)))
-        if typ and typ.startswith("LP"):         # LPDDR ist immer verlötet und kommt je Speicherkanal -> zusammenfassen
-            gruppe = verloetet.setdefault(name or t("hw.name.arbeitsspeicher"), {
-                "hersteller": hersteller, "teilenummer": teil, "groesse": 0, "typ": typ,
-                "takt": f"{eingestellt} MT/s" if eingestellt else None, "bauform": t("hw.wert.verloetet"),
-                "kanaele": 0})
-            gruppe["groesse"] += groesse
-            gruppe["kanaele"] += 1
+def memory_modules():
+    devices, soldered = [], {}
+    for r in query("SELECT Manufacturer, PartNumber, SerialNumber, BankLabel, DeviceLocator, Capacity, Speed, "
+                   "ConfiguredClockSpeed, SMBIOSMemoryType, FormFactor FROM Win32_PhysicalMemory"):
+        part = clean(r["PartNumber"])
+        vendor = vendor_name = clean(r["Manufacturer"])
+        if not vendor and part:
+            vendor_name = next((name for pattern, name in RAM_PART_NUMBERS if re.match(pattern, part)), None)
+            vendor = t("hw.value.from_part_number", vendor=vendor_name) if vendor_name else None
+        size = to_int(r["Capacity"]) or 0
+        ram_type = RAM_TYPES.get(to_int(r["SMBIOSMemoryType"]))
+        configured, rated = to_int(r["ConfiguredClockSpeed"]), to_int(r["Speed"])
+        name = " ".join(filter(None, (vendor_name, part)))
+        if ram_type and ram_type.startswith("LP"):   # LPDDR is always soldered and comes per memory channel -> combine
+            group = soldered.setdefault(name or t("hw.name.memory"), {
+                "manufacturer": vendor, "part_number": part, "size": 0, "type": ram_type,
+                "speed": f"{configured} MT/s" if configured else None, "form_factor": t("hw.value.soldered"),
+                "channels": 0})
+            group["size"] += size
+            group["channels"] += 1
             continue
-        geraete.append((name or t("hw.name.speicherriegel"), felder_ohne_leere([
-            ("hersteller", hersteller),
-            ("teilenummer", teil),
-            ("groesse", f"{groesse // 1024 ** 3} GB" if groesse else None),
-            ("typ", typ),
-            ("bauform", anzeige(RAM_BAUFORMEN.get(zahl(r["FormFactor"])))),
-            ("takt", f"{eingestellt} MT/s" if eingestellt else None),
-            ("takt_laut_riegel", f"{maximal} MT/s" if maximal and maximal != eingestellt else None),
-            ("steckplatz", " / ".join(filter(None, (wert(r["BankLabel"]), wert(r["DeviceLocator"]))))),
-            ("seriennummer", wert(r["SerialNumber"])),
+        devices.append((name or t("hw.name.memory_module"), non_empty([
+            ("manufacturer", vendor),
+            ("part_number", part),
+            ("size", f"{size // 1024 ** 3} GB" if size else None),
+            ("type", ram_type),
+            ("form_factor", display(RAM_FORM_FACTORS.get(to_int(r["FormFactor"])))),
+            ("speed", f"{configured} MT/s" if configured else None),
+            ("rated_speed", f"{rated} MT/s" if rated and rated != configured else None),
+            ("slot", " / ".join(filter(None, (clean(r["BankLabel"]), clean(r["DeviceLocator"]))))),
+            ("serial_number", clean(r["SerialNumber"])),
         ])))
-    for name, gruppe in verloetet.items():
-        gruppe["groesse"] = f"{gruppe['groesse'] // 1024 ** 3} GB" if gruppe["groesse"] else None
-        gruppe["kanaele"] = str(gruppe["kanaele"])
-        geraete.insert(0, (name, felder_ohne_leere(list(gruppe.items()))))
-    return geraete
+    for name, group in soldered.items():
+        group["size"] = f"{group['size'] // 1024 ** 3} GB" if group["size"] else None
+        group["channels"] = str(group["channels"])
+        devices.insert(0, (name, non_empty(list(group.items()))))
+    return devices
 
 
-def laufwerke():
-    geraete = []
-    for d in sorted(abfrage("SELECT DeviceId, FriendlyName, SerialNumber, FirmwareVersion, Size, BusType, MediaType "
-                            "FROM MSFT_PhysicalDisk", scope=r"root\Microsoft\Windows\Storage"),
-                    key=lambda d: zahl(d["DeviceId"]) or 0):
-        groesse = zahl(d["Size"])
-        geraete.append((wert(d["FriendlyName"]) or t("hw.name.laufwerk"), felder_ohne_leere([
-            ("art", anzeige(MEDIEN_TYPEN.get(zahl(d["MediaType"])))),
-            ("anschluss", anzeige(BUS_TYPEN.get(zahl(d["BusType"])))),
-            ("groesse", None if not groesse else f"{num(groesse / 1e12, 1)} TB" if groesse >= 1e12
-             else f"{groesse / 1e9:.0f} GB"),
-            ("seriennummer", (wert(d["SerialNumber"]) or "").rstrip(".") or None),
-            ("firmware", wert(d["FirmwareVersion"])),
-            ("datentraeger_nr", d["DeviceId"]),
+def drives():
+    devices = []
+    for d in sorted(query("SELECT DeviceId, FriendlyName, SerialNumber, FirmwareVersion, Size, BusType, MediaType "
+                          "FROM MSFT_PhysicalDisk", scope=r"root\Microsoft\Windows\Storage"),
+                    key=lambda d: to_int(d["DeviceId"]) or 0):
+        size = to_int(d["Size"])
+        devices.append((clean(d["FriendlyName"]) or t("hw.name.drive"), non_empty([
+            ("kind", display(MEDIA_TYPES.get(to_int(d["MediaType"])))),
+            ("interface", display(BUS_TYPES.get(to_int(d["BusType"])))),
+            ("size", None if not size else f"{num(size / 1e12, 1)} TB" if size >= 1e12
+             else f"{size / 1e9:.0f} GB"),
+            ("serial_number", (clean(d["SerialNumber"]) or "").rstrip(".") or None),
+            ("firmware", clean(d["FirmwareVersion"])),
+            ("disk_number", d["DeviceId"]),
         ])))
-    return geraete
+    return devices
 
 
-def netzwerk():
-    # Art (LAN, WLAN, …) steht nur in der neueren Klasse MSFT_NetAdapter – Win32_NetworkAdapter meldet auch WLAN
-    # als „Ethernet“. Zugeordnet wird über die Gerätekennung.
-    arten = {(a["PnPDeviceID"] or "").upper(): anzeige(NETZ_ARTEN.get(zahl(a["NdisPhysicalMedium"])))
-             for a in abfrage("SELECT PnPDeviceID, NdisPhysicalMedium FROM MSFT_NetAdapter",
-                              scope=r"root\StandardCimv2")}
-    geraete = []
-    for n in abfrage("SELECT Name, PNPDeviceID, MACAddress FROM Win32_NetworkAdapter WHERE PhysicalAdapter = TRUE"):
+def network_adapters():
+    # The kind (LAN, WLAN, …) is only in the newer class MSFT_NetAdapter – Win32_NetworkAdapter also reports WLAN
+    # as "Ethernet". They are matched via the device ID.
+    kinds = {(a["PnPDeviceID"] or "").upper(): display(NET_KINDS.get(to_int(a["NdisPhysicalMedium"])))
+             for a in query("SELECT PnPDeviceID, NdisPhysicalMedium FROM MSFT_NetAdapter",
+                            scope=r"root\StandardCimv2")}
+    devices = []
+    for n in query("SELECT Name, PNPDeviceID, MACAddress FROM Win32_NetworkAdapter WHERE PhysicalAdapter = TRUE"):
         pnp = n["PNPDeviceID"] or ""
         if not re.match(r"(PCI|USB)\\", pnp, re.I):
-            continue                             # virtuelle Adapter (VPN, Hyper-V, …) weglassen
-        geraete.append((wert(n["Name"]) or t("hw.name.netzwerkadapter"), felder_ohne_leere(
-            [("art", arten.get(pnp.upper()))] + ids_felder(pnp) + [("mac_adresse", wert(n["MACAddress"]))])))
-    return geraete
+            continue                             # leave out virtual adapters (VPN, Hyper-V, …)
+        devices.append((clean(n["Name"]) or t("hw.name.network_adapter"), non_empty(
+            [("kind", kinds.get(pnp.upper()))] + id_fields(pnp) + [("mac_address", clean(n["MACAddress"]))])))
+    return devices
 
 
-def audio():
-    geraete = []
-    for s in abfrage("SELECT Name, PNPDeviceID FROM Win32_SoundDevice"):
+def audio_devices():
+    devices = []
+    for s in query("SELECT Name, PNPDeviceID FROM Win32_SoundDevice"):
         pnp = s["PNPDeviceID"] or ""
-        # INTELAUDIO\FUNC_: Codec hinter Intel Smart Sound (Laptops) – die übrigen INTELAUDIO-Einträge sind nur
-        # Anschlüsse dieses Controllers (Mikrofon, Bluetooth, USB)
+        # INTELAUDIO\FUNC_: codec behind Intel Smart Sound (laptops) – the other INTELAUDIO entries are only
+        # endpoints of this controller (microphone, Bluetooth, USB)
         if not re.match(r"(PCI|HDAUDIO|INTELAUDIO\\FUNC_)", pnp, re.I):
-            continue                             # USB-Audio steht bei den USB-Geräten, virtuelle fehlen ganz
-        name = wert(s["Name"]) or t("hw.name.audiogeraet")
+            continue                             # USB audio is listed under USB devices, virtual ones are missing
+        name = clean(s["Name"]) or t("hw.name.audio_device")
         m = re.search(r"VEN_10EC&DEV_0([0-9A-F]{3})", pnp, re.I)
         if m and name.startswith("High Definition Audio"):
-            name = f"Realtek ALC{m[1]}"           # Realtek-Codecs heißen wie ihre Produkt-ID, z. B. 0892 -> ALC892
-        geraete.append((name, felder_ohne_leere(pci_felder(pnp))))
-    return geraete
+            name = f"Realtek ALC{m[1]}"           # Realtek codecs are named after their product ID, e.g. 0892 -> ALC892
+        devices.append((name, non_empty(pci_fields(pnp))))
+    return devices
 
 
-GENERISCH = re.compile(r"^(USB|HID)\b|Verbundgerät|Composite|Eingabegerät|Input Device|Audiogerät", re.I)
+# Windows names that say nothing about the device (also in German, as Windows reports them in its display language)
+GENERIC = re.compile(r"^(USB|HID)\b|Verbundgerät|Composite|Eingabegerät|Input Device|Audiogerät", re.I)
 
 
-def usb_geraete():
-    """Angeschlossene USB-Geräte, eins pro Hersteller-/Produkt-ID (ein Gerät meldet sich oft mehrfach an)."""
-    gruppen = {}
-    for e in abfrage("SELECT Name, Manufacturer, PNPDeviceID FROM Win32_PnPEntity WHERE PNPDeviceID LIKE 'USB%'"):
+def usb_devices():
+    """Connected USB devices, one per vendor/product ID (a device often registers several times)."""
+    groups = {}
+    for e in query("SELECT Name, Manufacturer, PNPDeviceID FROM Win32_PnPEntity WHERE PNPDeviceID LIKE 'USB%'"):
         ids = usb_ids(e["PNPDeviceID"])
         if ids:
-            gruppen.setdefault(ids, []).append(e)
-    geraete = []
-    for (vid, pid), eintraege in gruppen.items():
-        namen = [n for n in (wert(e["Name"]) for e in eintraege) if n and not GENERISCH.search(n)]
-        hersteller = USB_HERSTELLER.get(vid) or next(
-            (h for h in (wert(e["Manufacturer"]) for e in eintraege)
-             if h and not h.startswith("(") and not h.startswith("Microsoft")), None)
-        # Seriennummer: steht bei vielen Geräten als letzter Teil der Kennung (ohne „&“, das wäre eine Windows-Nummer)
-        seriennr = next((e["PNPDeviceID"].rsplit("\\", 1)[1] for e in eintraege
-                         if "&MI_" not in e["PNPDeviceID"].upper() and "&" not in e["PNPDeviceID"].rsplit("\\", 1)[1]),
-                        None)
-        name = (namen[0] if namen else f"{t('hw.name.usb_geraet')} ({hersteller})" if hersteller
-                else t("hw.name.usb_geraet"))
-        geraete.append((name, felder_ohne_leere([
-            ("hersteller_id", mit_namen(vid, USB_HERSTELLER) if vid in USB_HERSTELLER
-             else f"{vid} ({hersteller})" if hersteller else vid),
-            ("produkt_id", pid),
-            ("seriennummer", seriennr),
+            groups.setdefault(ids, []).append(e)
+    devices = []
+    for (vid, pid), entries in groups.items():
+        names = [n for n in (clean(e["Name"]) for e in entries) if n and not GENERIC.search(n)]
+        vendor = USB_VENDORS.get(vid) or next(
+            (v for v in (clean(e["Manufacturer"]) for e in entries)
+             if v and not v.startswith("(") and not v.startswith("Microsoft")), None)
+        # Serial number: many devices have it as the last part of the ID (without "&", that would be a Windows number)
+        serial = next((e["PNPDeviceID"].rsplit("\\", 1)[1] for e in entries
+                       if "&MI_" not in e["PNPDeviceID"].upper() and "&" not in e["PNPDeviceID"].rsplit("\\", 1)[1]),
+                      None)
+        name = (names[0] if names else f"{t('hw.name.usb_device')} ({vendor})" if vendor
+                else t("hw.name.usb_device"))
+        devices.append((name, non_empty([
+            ("vendor_id", with_name(vid, USB_VENDORS) if vid in USB_VENDORS
+             else f"{vid} ({vendor})" if vendor else vid),
+            ("product_id", pid),
+            ("serial_number", serial),
             ("hardware_id", f"USB\\VID_{vid}&PID_{pid}"),
         ])))
-    return sorted(geraete, key=lambda g: g[0].lower())
+    return sorted(devices, key=lambda d: d[0].lower())
 
 
-# Bereich-ID (Name: hw.bereich.<ID> in i18n.json) -> Funktion, die ihn liest
-BEREICHE = (("prozessor", prozessoren), ("grafikkarte", grafikkarten), ("mainboard", mainboard),
-            ("arbeitsspeicher", arbeitsspeicher), ("laufwerke", laufwerke), ("netzwerk", netzwerk),
-            ("audio", audio), ("usb_geraete", usb_geraete))
+# Category ID (name: hw.category.<ID> in i18n.json) -> function that reads it
+CATEGORIES = (("processor", processors), ("graphics_card", graphics_cards), ("motherboard", motherboards),
+              ("memory", memory_modules), ("drives", drives), ("network", network_adapters),
+              ("audio", audio_devices), ("usb_devices", usb_devices))
 
 
-def lesen():
-    """Alle Bereiche: [(Bereich-ID, [(Gerätename, [(Feld-ID, Wert), …]), …]), …] – leere Bereiche fehlen."""
-    daten = []
-    for bereich, funktion in BEREICHE:
+def read_all():
+    """All categories: [(category ID, [(device name, [(field ID, value), …]), …]), …] – empty categories are left out."""
+    data = []
+    for category, function in CATEGORIES:
         try:
-            geraete = funktion()
-        except Exception:                        # ein kaputter Bereich soll die anderen nicht verhindern
-            logging.exception("Hardwaredaten: Bereich %s konnte nicht gelesen werden", bereich)
+            devices = function()
+        except Exception:                        # one broken category shouldn't prevent the others
+            logging.exception("Hardware data: category %s could not be read", category)
             continue
-        if geraete:
-            daten.append((bereich, geraete))
-    return daten
+        if devices:
+            data.append((category, devices))
+    return data
 
 
-# ---------- Als Text (Kopieren im Tab Hardwaredaten) ----------
-def als_text(bereich, geraete):
-    """Ein Bereich mit allen Geräten und Feldern – zum Einfügen in Forum, Chat, Notizen."""
-    bloecke = ["\n".join([name] + [f"  {feldname(feld)}: {w}" for feld, w in felder]) for name, felder in geraete]
-    return f"=== {bereichsname(bereich)} ===\n" + "\n\n".join(bloecke)
+# ---------- As text (copying in the tab Hardware data) ----------
+def as_text(category, devices, private=False):
+    """One category with all devices and fields – for pasting into a forum, chat, notes.
+    private: privacy mode – sensitive fields as HIDDEN."""
+    blocks = ["\n".join([name] + [f"  {field_name(field)}: {shown(field, value, private)}" for field, value in fields])
+              for name, fields in devices]
+    return f"=== {category_name(category)} ===\n" + "\n\n".join(blocks)
 
 
-def alles_als_text(daten):
-    """Alle Bereiche, mit Computername und Datum oben drüber."""
-    kopf = t("hw.text.kopf", pc=platform.node(), datum=f"{date.today():%d.%m.%Y}")
-    return kopf + "\n\n" + "\n\n\n".join(als_text(b, g) for b, g in daten) + "\n"
+def all_as_text(data, private=False):
+    """All categories, with computer name (HIDDEN in privacy mode) and date on top."""
+    today = date.today()
+    header = t("hw.text.header", pc=HIDDEN if private else platform.node(),
+               date=fmt_date(today.year, today.month, today.day))
+    return header + "\n\n" + "\n\n\n".join(as_text(c, d, private) for c, d in data) + "\n"
 
 
-def modellnamen(geraete):
-    """Die Gerätenamen eines Bereichs – gleiche Geräte zusammengefasst („2× G.Skill …“)."""
-    namen = Counter(name for name, _ in geraete)
-    return [f"{n}× {name}" if n > 1 else name for name, n in namen.items()]
+def model_names(devices):
+    """The device names of a category – identical devices combined ("2× G.Skill …")."""
+    names = Counter(name for name, _ in devices)
+    return [f"{n}× {name}" if n > 1 else name for name, n in names.items()]
 
 
-def modellnamen_als_text(daten):
-    """Nur die Modellnamen: der Bereich, darunter je Gerät eine Zeile mit Tab davor."""
-    zeilen = []
-    for bereich, geraete in daten:
-        zeilen += [bereichsname(bereich)] + [f"\t{name}" for name in modellnamen(geraete)]
-    return "\n".join(zeilen) + "\n"
+def model_names_as_text(data):
+    """Only the model names: the category, below it one line per device with a tab in front."""
+    lines = []
+    for category, devices in data:
+        lines += [category_name(category)] + [f"\t{name}" for name in model_names(devices)]
+    return "\n".join(lines) + "\n"
 
 
 if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding="utf-8")
-    for bereich, geraete in lesen():
-        print(f"\n=== {bereichsname(bereich)} ===")
-        for name, felder in geraete:
+    for category, devices in read_all():
+        print(f"\n=== {category_name(category)} ===")
+        for name, fields in devices:
             print(f"  {name}")
-            for feld, w in felder:
-                print(f"      {feldname(feld):20} {w}")
+            for field, value in fields:
+                print(f"      {field_name(field):20} {value}")

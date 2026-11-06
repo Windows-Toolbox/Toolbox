@@ -1,16 +1,16 @@
 """
-Das Detailfenster des Hardware-Monitors (tkinter + ttk).
+The detail window of the Hardware Monitor (tkinter + ttk).
 
-WAS im Fenster steht, steht in detail_window_content.py – nur dort musst du etwas ändern, z. B.:
+WHAT the window shows is in detail_window_content.py – that's the only place you need to change, e.g.:
 
     Tab("GPU",
-        Gruppe("gpu",
-               Wert("GPU Core", typ="Temperatur"),
-               Wert("GPU Fan *", typ="Lüfter")))
+        Group("gpu",
+              Value("GPU Core", type="Temperature"),
+              Value("GPU Fan *", type="Fan")))
 
-Diese Datei baut daraus das Fenster und muss normalerweise nicht angefasst werden – wie base.py bei der Toolbox.
-Änderungen an detail_window_content.py werden beim nächsten Öffnen des Fensters übernommen (kein Neustart nötig).
-Alle Texte stehen in i18n.json – hier steht nur ihre ID: t("fenster.…") (siehe toolbox\\i18n.py).
+This file builds the window from it and normally doesn't need to be touched – like base.py for the Toolbox.
+Changes to detail_window_content.py are picked up the next time the window opens (no restart needed).
+All texts are in i18n.json – only their ID is here: t("window.…") (see toolbox\\i18n.py).
 """
 
 import ctypes
@@ -30,173 +30,184 @@ from pathlib import Path
 from tkinter import ttk
 
 import hardware_data
-from hardware_monitor_settings import t
-from hardware_data import num
+from drive_view import DriveHealthView
+from energy_view import EnergyView
+from fan_view import FanView
+from hardware_monitor_settings import num, t
 
-INHALT_DATEI = Path(__file__).with_name("detail_window_content.py")
-ICON_DATEI = Path(__file__).resolve().parents[2] / "toolbox" / "program.ico"     # ⚒ auf Grün, wie alle Programme
-# Fenstertitel: der Pfad des Programms, wie der Explorer seinen Ordner zeigt. Im Task-Manager steht er dann unter
-# „Hardware-Monitor“ und zeigt, welche Kopie läuft (z. B. nach dem Verschieben des Ordners).
-PROGRAMM_DATEI = Path(__file__).resolve().with_name("hardware_monitor.py")
-# Zahnrad oben rechts: öffnet die Seite des Hardware-Monitors in der Toolbox (toolbox_oeffnen)
-PROGRAMM_ID = json.loads(PROGRAMM_DATEI.with_name("program.json").read_text(encoding="utf-8"))["id"]
+CONTENT_FILE = Path(__file__).with_name("detail_window_content.py")
+ICON_FILE = Path(__file__).resolve().parents[2] / "toolbox" / "program.ico"     # ⚒ on green, like all programs
+# Window title: the path of the program, the way Explorer shows its folder. In Task Manager it then appears under
+# "Hardware Monitor" and shows which copy is running (e.g. after the folder was moved).
+PROGRAM_FILE = Path(__file__).resolve().with_name("hardware_monitor.py")
+# Gear at the top right: opens the Hardware Monitor's page in the Toolbox (open_toolbox)
+PROGRAM_ID = json.loads(PROGRAM_FILE.with_name("program.json").read_text(encoding="utf-8"))["id"]
 TOOLBOX_DIR = Path(__file__).resolve().parents[2]
-TOOLBOX_EXE = TOOLBOX_DIR / "Toolbox.exe"            # Starter der Toolbox (legt Setup.exe an)
+TOOLBOX_EXE = TOOLBOX_DIR / "Toolbox.exe"            # starter of the Toolbox (created by Setup.exe)
 TOOLBOX_PORT = json.loads((TOOLBOX_DIR / "toolbox" / "program.json").read_text(encoding="utf-8"))["port"]
 
 
-def toolbox_befehl(befehl):
-    """Schickt der laufenden Toolbox einen Befehl (siehe instance_server in toolbox.py). True, wenn sie „ok“ sagt."""
+def toolbox_command(command):
+    """Sends a command to the running Toolbox (see instance_server in toolbox.py). True if it says "ok"."""
     try:
         with socket.create_connection(("127.0.0.1", TOOLBOX_PORT), timeout=0.5) as conn:
-            conn.sendall(f"{befehl}\n".encode())
+            conn.sendall(f"{command}\n".encode())
             return conn.recv(16).startswith(b"ok")
     except OSError:
         return False
 
 
-def toolbox_oeffnen():
-    """Die Seite des Hardware-Monitors in der Toolbox zeigen – blockiert bis zu 15 s, also im Hintergrund aufrufen.
-    Läuft die Toolbox, genügt „show hardware_monitor“. Sonst wird sie gestartet, und zwar über explorer.exe: Der
-    Monitor läuft meist mit Adminrechten (Aufgabe, UAC) – direkt gestartet, hätte die Toolbox sie auch. explorer.exe
-    startet sie als normales Programm, reicht aber keine Argumente weiter. Deshalb danach „show …“ schicken, sobald
-    sie antwortet. True, wenn die Toolbox die Seite zeigt."""
-    ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY: die Toolbox darf ihr Fenster nach vorne holen
-    befehl = f"show {PROGRAMM_ID}"
-    if toolbox_befehl(befehl):
+def open_toolbox():
+    """Show the Hardware Monitor's page in the Toolbox – blocks for up to 15 s, so call it in the background.
+    If the Toolbox is running, "show hardware_monitor" is enough. Otherwise it gets started, via explorer.exe: the
+    monitor usually runs with admin rights (task, UAC) – started directly, the Toolbox would have them too.
+    explorer.exe starts it as a normal program but doesn't pass on arguments. That's why "show …" is sent
+    afterwards, as soon as it answers. True if the Toolbox shows the page."""
+    ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY: the Toolbox may bring its window to the front
+    command = f"show {PROGRAM_ID}"
+    if toolbox_command(command):
         return True
     if not TOOLBOX_EXE.exists():
-        logging.warning("%s fehlt – Setup.exe ausführen", TOOLBOX_EXE)
+        logging.warning("%s is missing – run Setup.exe", TOOLBOX_EXE)
         return False
     try:
         subprocess.Popen(["explorer.exe", str(TOOLBOX_EXE)])
     except OSError:
-        logging.exception("Toolbox konnte nicht gestartet werden")
+        logging.exception("Toolbox could not be started")
         return False
     for _ in range(60):
         time.sleep(0.25)
-        if toolbox_befehl(befehl):
+        if toolbox_command(command):
             return True
-    logging.warning("Toolbox hat nach 15 s nicht geantwortet")
+    logging.warning("Toolbox didn't answer after 15 s")
     return False
 
 
-# ---------- Bausteine für detail_window_content.py ----------
-def beschriftung(text):
-    """Titel aus detail_window_content.py: eine ID aus i18n.json (z. B. "tab.gpu") in der gewählten Sprache – oder
-    ein eigener Text ohne ID, der bleibt, wie er ist."""
+# ---------- Building blocks for detail_window_content.py ----------
+def label_text(text):
+    """Title from detail_window_content.py: an ID from i18n.json (e.g. "tab.gpu") in the chosen language – or a
+    custom text without ID, which stays as it is."""
     return t(text) if text in t else text
 
 
 class Tab:
-    """Ein Tab im Fenster: Titel (ID aus i18n.json oder eigener Text) und darin die Gruppen (oder AlleSensoren()
-    bzw. Hardwaredaten())."""
+    """A tab in the window: title (ID from i18n.json or custom text) and the groups in it (or AllSensors() or
+    HardwareData())."""
 
-    def __init__(self, titel, *gruppen):
-        self.titel, self.gruppen = titel, gruppen
+    def __init__(self, title, *groups):
+        self.title, self.groups = title, groups
 
 
-class Gruppe:
-    """Werte eines Geräts, mit dem Gerätenamen als Überschrift.
+class Group:
+    """Values of one device, with the device name as heading.
 
-    geraet: "cpu", "gpu", "ram", "mainboard", "laufwerk", "netzwerk", "akku" oder "weitere"
-            (steht bei `hardware_monitor.py --list` in eckigen Klammern).
-            Gibt es mehrere passende Geräte (z. B. drei Laufwerke), erscheint die Gruppe für jedes einmal.
-            Hat der PC keins davon (z. B. keinen Akku), wird der Tab ausgeblendet.
-    name:   nur Geräte, deren Name hierzu passt (* als Platzhalter), z. B. name="Total Memory"
-    titel:  eigene Überschrift statt des Gerätenamens (ID aus i18n.json oder eigener Text)
-    werte:  Wert(...)-Zeilen und Abschnitt(...)e (einklappbare Unterpunkte, z. B. alle Lüfter)
+    device: "cpu", "gpu", "ram", "motherboard", "drive", "network", "battery" or "other"
+            (shown in square brackets by `hardware_monitor.py --list`).
+            If several devices match (e.g. three drives), the group appears once for each.
+            If the PC has none of them (e.g. no battery), the tab is hidden.
+    name:   only devices whose name matches (* as wildcard), e.g. name="Total Memory"
+    title:  own heading instead of the device name (ID from i18n.json or custom text)
+    values: Value(...) rows and Section(...)s (collapsible sub-items, e.g. all fans)
     """
 
-    def __init__(self, geraet, *werte, name="*", titel=None):
-        self.geraet, self.werte, self.name, self.titel = geraet, werte, name, titel
+    def __init__(self, device, *values, name="*", title=None):
+        self.device, self.values, self.name, self.title = device, values, name, title
 
 
-class Wert:
-    """Eine Zeile im Fenster.
+class Value:
+    """One row in the window.
 
-    sensor: Sensorname wie bei `hardware_monitor.py --list`; * als Platzhalter (z. B. "Fan #*" = alle Lüfter).
-    typ:    nur nötig, wenn es den Namen mehrfach gibt ("GPU Core" ist Temperatur, Auslastung und Takt) –
-            deutsch wie in --list ("Temperatur") oder englisch ("Temperature").
-    text:   eigene Beschriftung statt des Sensornamens (ID aus i18n.json oder eigener Text).
-    ohne:   Sensoren, die trotz Platzhalter nicht dazugehören, z. B. ohne="*Distance*" bei "CPU Core #*".
+    sensor:  sensor name as shown by `hardware_monitor.py --list`; * as wildcard (e.g. "Fan #*" = all fans).
+    type:    only needed if the name exists several times ("GPU Core" is a temperature, a load and a clock) –
+             the sensor type as shown by --list, e.g. "Temperature", "Load", "Clock", "Power", "Fan", "Control".
+    text:    own label instead of the sensor name (ID from i18n.json or custom text).
+    exclude: sensors that don't belong despite the wildcard, e.g. exclude="*Distance*" for "CPU Core #*".
     """
 
-    def __init__(self, sensor, typ=None, text=None, ohne=None):
-        self.sensor, self.text, self.ohne = sensor, text, ohne
-        self.typ = LABEL_TYPES.get(typ, typ)            # "Temperatur" -> "Temperature"
+    def __init__(self, sensor, type=None, text=None, exclude=None):
+        self.sensor, self.type, self.text, self.exclude = sensor, type, text, exclude
 
-    def passt(self, s):
+    def matches(self, s):
         name = s["name"].lower()
-        return ((self.typ is None or s["type"] == self.typ)
+        return ((self.type is None or s["type"] == self.type)
                 and fnmatch.fnmatchcase(name, self.sensor.lower())
-                and not (self.ohne and fnmatch.fnmatchcase(name, self.ohne.lower())))
+                and not (self.exclude and fnmatch.fnmatchcase(name, self.exclude.lower())))
 
 
-class Abschnitt:
-    """Ein einklappbarer Unterpunkt in einer Gruppe, z. B. alle Lüfter. Ohne passende Sensoren fehlt er.
+class Section:
+    """A collapsible sub-item in a group, e.g. all fans. Without matching sensors it's left out.
 
-    titel:      Beschriftung des Unterpunkts (ID aus i18n.json oder eigener Text)
-    werte:      Wert(...)-Zeilen wie in einer Gruppe
-    eine_zeile: Werte mit demselben Namen in EINER Zeile: der erste als Wert, der zweite als Balken mit Prozent
-                dahinter – z. B. Fan #1 mit Drehzahl und Ansteuerung. „Control“ im Namen zählt dabei nicht mit,
-                „Fan Control #1“ gehört also zu „Fan #1“.
+    title:   label of the sub-item (ID from i18n.json or custom text)
+    values:  Value(...) rows like in a group
+    one_row: values with the same name in ONE row: the first as value, the second as a bar with the percentage
+             behind it – e.g. Fan #1 with speed and control. "Control" in the name doesn't count, so
+             "Fan Control #1" belongs to "Fan #1".
     """
 
-    def __init__(self, titel, *werte, eine_zeile=False):
-        self.titel, self.werte, self.eine_zeile = titel, werte, eine_zeile
+    def __init__(self, title, *values, one_row=False):
+        self.title, self.values, self.one_row = title, values, one_row
 
-    def zeilen(self, sensors):
-        """[(Text, Sensor)] in Anzeigereihenfolge. Bei eine_zeile hat der Sensor unter "balken" den zweiten Wert."""
-        rows, gesehen = [], set()
-        for wert in self.werte:
+    def rows(self, sensors):
+        """[(text, sensor)] in display order. With one_row the sensor has the second value under "bar"."""
+        rows, seen = [], set()
+        for value in self.values:
             for s in sensors:
-                if wert.passt(s) and s["id"] not in gesehen:     # passt zu zwei Mustern (*Fan*, *Pump*) -> nur einmal
-                    gesehen.add(s["id"])
-                    rows.append((beschriftung(wert.text) if wert.text else s["name"], s))
-        if not self.eine_zeile:
+                if value.matches(s) and s["id"] not in seen:     # matches two patterns (*Fan*, *Pump*) -> only once
+                    seen.add(s["id"])
+                    rows.append((label_text(value.text) if value.text else s["name"], s))
+        if not self.one_row:
             return rows
-        zeilen = {}                                      # Name ohne „Control“ -> [Text, Sensor]; dict hält die Reihenfolge
+        combined = {}                                    # name without "Control" -> [text, sensor]; dict keeps the order
         for text, s in rows:
             name = re.sub(r"\s*\bControl\b", "", s["name"])
-            if name not in zeilen:
-                zeilen[name] = [text, s]
-            elif "balken" not in zeilen[name][1]:
-                zeilen[name][1] = {**zeilen[name][1], "balken": s}      # Kopie: der Snapshot bleibt unverändert
-        return [tuple(zeile) for zeile in zeilen.values()]
+            if name not in combined:
+                combined[name] = [text, s]
+            elif "bar" not in combined[name][1]:
+                combined[name][1] = {**combined[name][1], "bar": s}      # copy: the snapshot stays unchanged
+        return [tuple(row) for row in combined.values()]
 
 
-class AlleSensoren:
-    """Alles, was LibreHardwareMonitor findet – nach Gerät und Sensortyp sortiert. Gut zum Nachschlagen von Namen."""
+class AllSensors:
+    """Everything LibreHardwareMonitor finds – sorted by device and sensor type. Good for looking up names."""
 
 
-class Hardwaredaten:
-    """Feste Daten der Hardware: Hersteller, Modell, Hersteller- und Produkt-IDs, Seriennummern, Treiber.
-    Wird beim Öffnen des Fensters einmal über Windows gelesen (hardware_data.py), nicht laufend gemessen."""
+class HardwareData:
+    """Fixed data of the hardware: manufacturer, model, vendor and product IDs, serial numbers, drivers.
+    Read once from Windows when the window opens (hardware_data.py), not measured continuously."""
 
 
-# ---------- Werte anzeigen ----------
-# Sensortyp -> deutscher Name, wie ihn --list zeigt und typ= in detail_window_content.py versteht – ein Schlüssel, keine
-# Anzeige (angezeigt wird t("typ.<Sensortyp>")). Die Reihenfolge gilt auch im Tab mit AlleSensoren().
-TYPE_LABELS = {
-    "Temperature": "Temperatur", "Load": "Auslastung", "Clock": "Takt", "Frequency": "Frequenz",
-    "Power": "Leistung", "Voltage": "Spannung", "Current": "Stromstärke", "Energy": "Energie",
-    "Fan": "Lüfter", "Control": "Lüftersteuerung", "Flow": "Durchfluss", "Data": "Daten",
-    "SmallData": "Speicher", "Throughput": "Durchsatz", "Level": "Zustand", "Factor": "Faktor",
-    "TimeSpan": "Zeit", "Timing": "Timing", "Noise": "Lautstärke", "Conductivity": "Leitfähigkeit",
-    "Humidity": "Luftfeuchtigkeit",
-}
-LABEL_TYPES = {label: typ for typ, label in TYPE_LABELS.items()}
+class PowerConsumption:
+    """Power consumption of the whole PC: current power, totals and a chart of the logged values (energy.py,
+    energy_view.py). Logging is switched on and configured on the Toolbox page."""
 
-UNITS = {   # Sensortyp -> (Nachkommastellen, Einheit)
+
+class FanControl:
+    """Fan control: curves for the graphics card fans and the motherboard fan headers (fans.py, fan_view.py)."""
+
+
+class DriveHealth:
+    """Health of the drives like CrystalDiskInfo: status, temperature, life, SMART table (drive_view.py)."""
+
+
+VIEWS = {PowerConsumption: EnergyView, FanControl: FanView, DriveHealth: DriveHealthView}   # tabs without a list
+
+
+# ---------- Displaying values ----------
+# Sensor types in the order in which the tab with AllSensors() lists them; shown as t("type.<sensor type>")
+SENSOR_TYPES = (
+    "Temperature", "Load", "Clock", "Frequency", "Power", "Voltage", "Current", "Energy", "Fan", "Control", "Flow",
+    "Data", "SmallData", "Throughput", "Level", "Factor", "TimeSpan", "Timing", "Noise", "Conductivity", "Humidity",
+)
+
+UNITS = {   # sensor type -> (decimals, unit)
     "Temperature": (0, "°C"), "Load": (0, "%"), "Control": (0, "%"), "Level": (0, "%"),
     "Humidity": (0, "%"), "Clock": (0, "MHz"), "Frequency": (0, "Hz"), "Power": (1, "W"),
     "Voltage": (3, "V"), "Current": (2, "A"), "Fan": (0, "RPM"),
     "Flow": (0, "L/h"), "Data": (1, "GB"), "SmallData": (0, "MB"), "Timing": (1, "ns"),
     "Noise": (0, "dBA"), "Conductivity": (0, "µS/cm"), "Factor": (2, ""),
 }
-BAR_TYPES = {"Temperature", "Load", "Control", "Level", "Humidity"}      # Werte von 0–100 bekommen einen Balken
-OHNE_AMPEL = ("*Distance to TjMax", "Warning Temperature", "Critical Temperature")   # Grenzwerte, keine Messwerte
+BAR_TYPES = {"Temperature", "Load", "Control", "Level", "Humidity"}      # values from 0–100 get a bar
+NO_TRAFFIC_LIGHT = ("*Distance to TjMax", "Warning Temperature", "Critical Temperature")   # limits, not measurements
 
 
 def fmt_rate(bytes_per_s):
@@ -212,147 +223,171 @@ def fmt_value(sensor_type, value):
     if sensor_type == "TimeSpan":
         minutes = int(value // 60)
         return f"{minutes // 60}:{minutes % 60:02d} h"
-    if sensor_type == "Data" and value >= 1024:          # große Datenmengen lesbarer in TB
+    if sensor_type == "Data" and value >= 1024:          # large amounts of data more readable in TB
         return f"{num(value / 1024, 2)} TB"
-    if sensor_type == "Energy":                          # LHM liefert mWh, z. B. Akku-Kapazität
+    if sensor_type == "Energy":                          # LHM delivers mWh, e.g. battery capacity
         return f"{num(value / 1000, 1)} Wh"
-    if sensor_type == "SmallData" and value >= 1024:     # z. B. Grafikspeicher lieber in GB
+    if sensor_type == "SmallData" and value >= 1024:     # e.g. graphics memory rather in GB
         return f"{num(value / 1024, 1)} GB"
-    if sensor_type == "Factor" and value == int(value):  # Zähler wie Power On Hours ohne ",00"
+    if sensor_type == "Factor" and value == int(value):  # counters like Power On Hours without ".00"
         return num(value, 0)
     decimals, unit = UNITS.get(sensor_type, (1, ""))
     return f"{num(value, decimals)} {unit}".strip()
 
 
-AMPEL = {"grau": (143, 163, 184), "gruen": (61, 220, 151), "gelb": (245, 196, 81), "rot": (255, 100, 100)}
+TRAFFIC_LIGHT = {"gray": (143, 163, 184), "green": (61, 220, 151), "yellow": (245, 196, 81), "red": (255, 100, 100)}
 
 
-def temp_stufe(value, settings, kind):
-    """"gruen", "gelb" oder "rot" je nach den Grenzen aus den Einstellungen ("grau" ohne Wert).
-    kind: "cpu" oder "gpu" – beide haben eigene Grenzen."""
+def temp_level(value, settings, kind):
+    """"green", "yellow" or "red" depending on the limits from the settings ("gray" without a value).
+    kind: "cpu" or "gpu" – both have their own limits."""
     if value is None:
-        return "grau"
+        return "gray"
     if value < settings[f"{kind}_warn_temp"]:
-        return "gruen"
-    return "gelb" if value < settings[f"{kind}_hot_temp"] else "rot"
+        return "green"
+    return "yellow" if value < settings[f"{kind}_hot_temp"] else "red"
 
 
 def temp_color(value, settings, kind):
-    """Ampelfarbe (RGB) für eine Temperatur – dieselbe in Tray-Icons und Fenster."""
-    return AMPEL[temp_stufe(value, settings, kind)]
+    """Traffic-light color (RGB) for a temperature – the same in tray icons and window."""
+    return TRAFFIC_LIGHT[temp_level(value, settings, kind)]
 
 
 def hex_color(rgb):
     return "#%02x%02x%02x" % rgb
 
 
-def balken(value):
-    """Kleiner Text-Balken für Werte von 0–100, z. B. ████░░░░░░ für 40 %."""
+def bar(value):
+    """Small text bar for values from 0–100, e.g. ████░░░░░░ for 40 %."""
     filled = round(max(0.0, min(value, 100.0)) / 10)
     return "█" * filled + "░" * (10 - filled)
 
 
-def erklaere(sensor, inhalt):
-    """Erklärtext aus ERKLAERUNGEN in detail_window_content.py (erster passender Eintrag) – die Texte selbst stehen
+def explain(sensor, content):
+    """Explanation from EXPLANATIONS in detail_window_content.py (first matching entry) – the texts themselves are
     in i18n.json."""
-    for typ, muster, text in getattr(inhalt, "ERKLAERUNGEN", []):
-        if typ == sensor["type"]:
-            match = re.fullmatch(muster, sensor["name"])
+    for sensor_type, pattern, text in getattr(content, "EXPLANATIONS", []):
+        if sensor_type == sensor["type"]:
+            match = re.fullmatch(pattern, sensor["name"])
             if match:
-                return beschriftung(text).format(*(g or "" for g in match.groups()))
-    text = getattr(inhalt, "TYP_ERKLAERUNGEN", {}).get(sensor["type"])
-    return beschriftung(text) if text else t("erklaerung.standard")
+                return label_text(text).format(*(g or "" for g in match.groups()))
+    text = getattr(content, "TYPE_EXPLANATIONS", {}).get(sensor["type"])
+    return label_text(text) if text else t("explain.default")
 
 
-# ---------- Vom Inhalt zur Liste ----------
-def sichtbare_zeilen(tree, parent=""):
-    """Alle Zeilen einer Treeview in Anzeigereihenfolge – ohne die in zugeklappten Bereichen."""
+# ---------- From the content to the list ----------
+def visible_rows(tree, parent=""):
+    """All rows of a Treeview in display order – without those in collapsed areas."""
     for key in tree.get_children(parent):
         yield key
         if tree.item(key, "open"):
-            yield from sichtbare_zeilen(tree, key)
+            yield from visible_rows(tree, key)
 
 
-def vorfahren(tree, key):
-    """Die übergeordneten Zeilen von key (für die Einrückung beim Kopieren)."""
+def ancestors(tree, key):
+    """The parent rows of key (for the indentation when copying)."""
     while key := tree.parent(key):
         yield key
 
 
-def benoetigte_geraete(tab):
-    """Welche Geräte der Mess-Thread für diesen Tab lesen muss (None = alle)."""
-    if ist_hwdaten(tab):
-        return set()                                     # nichts messen, nur die Icons laufen weiter
-    if any(isinstance(g, AlleSensoren) for g in tab.gruppen):
+def needed_devices(tab):
+    """Which devices the measuring thread has to read for this tab (None = all). "power" = the power of CPU and
+    graphics card for the tab Power (measured even while logging is off)."""
+    if is_hardware_data(tab):
+        return set()                                     # measure nothing, only the icons keep running
+    if is_power(tab):
+        return {"power"}
+    if is_fans(tab):
+        return {"gpu", "motherboard"}                    # speeds and control values of the fans
+    if view_class(tab) is DriveHealthView:
+        return {"health"}                                # SMART of all drives (read_drive_health)
+    if any(isinstance(g, AllSensors) for g in tab.groups):
         return None
-    return {g.geraet for g in tab.gruppen}
+    return {g.device for g in tab.groups}
 
 
-def ist_hwdaten(tab):
-    return any(isinstance(g, Hardwaredaten) for g in tab.gruppen)
+def is_hardware_data(tab):
+    return any(isinstance(g, HardwareData) for g in tab.groups)
 
 
-def mit_prozent(tab):
-    """True, wenn im Tab Zeilen mit zwei Werten stehen (Abschnitt mit eine_zeile) – Balken bekommen dann „97 %“."""
-    return any(isinstance(w, Abschnitt) and w.eine_zeile for g in tab.gruppen for w in getattr(g, "werte", ()))
+def is_power(tab):
+    return any(isinstance(g, PowerConsumption) for g in tab.groups)
 
 
-def hwdaten_zeilen(daten, uebersicht=False):
-    """Wie zeilen(), nur für den Tab Hardwaredaten: Bereich -> Gerät -> Felder. Felder stehen als "Info"-Sensor drin
-    (mit "feld" = ID des Felds für die Erklärung). uebersicht=True: nur Bereich -> Modellnamen, gleiche Geräte
-    zusammengefasst („2× …“)."""
+def is_fans(tab):
+    return any(isinstance(g, FanControl) for g in tab.groups)
+
+
+def view_class(tab):
+    """The own view of a tab without a sensor list (EnergyView, FanView, DriveHealthView) – or None."""
+    return next((VIEWS[type(g)] for g in tab.groups if type(g) in VIEWS), None)
+
+
+def with_percent(tab):
+    """True if the tab has rows with two values (Section with one_row) – bars then get "97 %"."""
+    return any(isinstance(v, Section) and v.one_row for g in tab.groups for v in getattr(g, "values", ()))
+
+
+def hardware_data_rows(data, overview=False, private=False):
+    """Like rows(), only for the tab Hardware data: category -> device -> fields. Fields are in it as an "Info"
+    sensor (with "field" = ID of the field for the explanation). overview=True: only category -> model names,
+    identical devices combined ("2× …"). private: privacy mode – sensitive values as ████████ ("hidden": True)."""
     result = []
-    for b, (bereich, geraete) in enumerate(daten):
-        result.append((f"b{b}", "", hardware_data.bereichsname(bereich), None))
-        if uebersicht:
-            result += [(f"b{b}|{g}", f"b{b}", name, None) for g, name in enumerate(hardware_data.modellnamen(geraete))]
+    for c, (category, devices) in enumerate(data):
+        result.append((f"c{c}", "", hardware_data.category_name(category), None))
+        if overview:
+            result += [(f"c{c}|{d}", f"c{c}", name, None)
+                       for d, name in enumerate(hardware_data.model_names(devices))]
             continue
-        for g, (name, felder) in enumerate(geraete):
-            head = f"b{b}|{g}"
-            result.append((head, f"b{b}", name, None))
-            result += [(f"{head}|{i}", head, hardware_data.feldname(feld),
-                        {"type": "Info", "name": hardware_data.feldname(feld), "feld": feld, "value": wert})
-                       for i, (feld, wert) in enumerate(felder)]
+        for d, (name, fields) in enumerate(devices):
+            head = f"c{c}|{d}"
+            result.append((head, f"c{c}", name, None))
+            for i, (field, value) in enumerate(fields):
+                text = hardware_data.shown(field, value, private)
+                result.append((f"{head}|{i}", head, hardware_data.field_name(field),
+                               {"type": "Info", "name": hardware_data.field_name(field), "field": field,
+                                "value": text, "hidden": text != value}))
     return result
 
 
-def zeilen(tab, snap):
-    """Was der Tab gerade zeigt, als Liste von (Schlüssel, Eltern-Schlüssel, Text, Sensor oder None).
-    Überschriften haben keinen Sensor. Die Schlüssel bleiben gleich, solange sich nichts am Aufbau ändert."""
+def rows(tab, snap):
+    """What the tab currently shows, as a list of (key, parent key, text, sensor or None).
+    Headings have no sensor. The keys stay the same as long as nothing changes in the structure."""
     result = []
-    for nr, gruppe in enumerate(tab.gruppen):
+    for nr, group in enumerate(tab.groups):
         for hw in snap["hardware"]:
             head = f"{nr}|{hw['id']}"
-            if isinstance(gruppe, AlleSensoren):
+            if isinstance(group, AllSensors):
                 result.append((head, "", hw["name"], None))
-                for typ in TYPE_LABELS:                         # nach Sensortyp sortiert
-                    sensors = [s for s in hw["sensors"] if s["type"] == typ]
+                for sensor_type in SENSOR_TYPES:                # sorted by sensor type
+                    sensors = [s for s in hw["sensors"] if s["type"] == sensor_type]
                     if sensors:
-                        result.append((f"{head}|{typ}", head, t(f"typ.{typ}"), None))
-                        result += [(f"{head}|{typ}|{i}", f"{head}|{typ}", s["name"], s) for i, s in enumerate(sensors)]
+                        result.append((f"{head}|{sensor_type}", head, t(f"type.{sensor_type}"), None))
+                        result += [(f"{head}|{sensor_type}|{i}", f"{head}|{sensor_type}", s["name"], s)
+                                   for i, s in enumerate(sensors)]
                 continue
-            if hw["geraet"] != gruppe.geraet or not fnmatch.fnmatchcase(hw["name"].lower(), gruppe.name.lower()):
+            if hw["device"] != group.device or not fnmatch.fnmatchcase(hw["name"].lower(), group.name.lower()):
                 continue
-            rows = []
-            for i, wert in enumerate(gruppe.werte):
-                if isinstance(wert, Abschnitt):                  # Unterpunkt mit eigenen Zeilen darunter
-                    unter = wert.zeilen(hw["sensors"])
-                    if unter:
-                        key = f"{head}|{wert.titel}"             # ID: zugeklappt bleibt zu, auch nach Sprachwechsel
-                        rows.append((key, head, beschriftung(wert.titel), None))
-                        rows += [(f"{key}|{j}", key, text, s) for j, (text, s) in enumerate(unter)]
+            group_rows = []
+            for i, value in enumerate(group.values):
+                if isinstance(value, Section):                  # sub-item with its own rows below it
+                    sub = value.rows(hw["sensors"])
+                    if sub:
+                        key = f"{head}|{value.title}"           # ID: collapsed stays collapsed, also after a language switch
+                        group_rows.append((key, head, label_text(value.title), None))
+                        group_rows += [(f"{key}|{j}", key, text, s) for j, (text, s) in enumerate(sub)]
                 else:
-                    rows += [(f"{head}|{i}|{j}", head, beschriftung(wert.text) if wert.text else s["name"], s)
-                             for j, s in enumerate(s for s in hw["sensors"] if wert.passt(s))]
-            if rows:
-                result.append((head, "", beschriftung(gruppe.titel) if gruppe.titel else hw["name"], None))
-                result += rows
+                    group_rows += [(f"{head}|{i}|{j}", head, label_text(value.text) if value.text else s["name"], s)
+                                   for j, s in enumerate(s for s in hw["sensors"] if value.matches(s))]
+            if group_rows:
+                result.append((head, "", label_text(group.title) if group.title else hw["name"], None))
+                result += group_rows
     return result
 
 
-# ---------- Windows-Helfer ----------
-def arbeitsbereich(x, y):
-    """Bildschirmbereich ohne Taskleiste (links, oben, rechts, unten) des Bildschirms am Punkt x, y – oder None."""
+# ---------- Windows helpers ----------
+def work_area(x, y):
+    """Screen area without the taskbar (left, top, right, bottom) of the screen at point x, y – or None."""
     class MONITORINFO(ctypes.Structure):
         _fields_ = [("cbSize", ctypes.c_ulong), ("rcMonitor", ctypes.c_long * 4),
                     ("rcWork", ctypes.c_long * 4), ("dwFlags", ctypes.c_ulong)]
@@ -360,7 +395,7 @@ def arbeitsbereich(x, y):
     user32 = ctypes.windll.user32
     user32.MonitorFromPoint.restype = ctypes.c_void_p
     user32.MonitorFromPoint.argtypes = [wintypes.POINT, ctypes.c_ulong]
-    monitor = user32.MonitorFromPoint(wintypes.POINT(x, y), 0)         # 0 = None, wenn dort kein Bildschirm ist
+    monitor = user32.MonitorFromPoint(wintypes.POINT(x, y), 0)         # 0 = None if there is no screen there
     if not monitor:
         return None
     info = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
@@ -368,471 +403,583 @@ def arbeitsbereich(x, y):
     return tuple(info.rcWork) if user32.GetMonitorInfoW(monitor, ctypes.byref(info)) else None
 
 
-def dunkle_titelleiste(window):
-    """Windows-Titelleiste im dunklen Design (passend zum Fensterinhalt)."""
+def dark_title_bar(window):
+    """Windows title bar in the dark design (matching the window content)."""
     hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
     on = ctypes.c_int(1)
     ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(on), ctypes.sizeof(on))  # IMMERSIVE_DARK_MODE
 
 
-# ---------- Das Fenster ----------
-# dieselben Farben wie die dunkle Toolbox (toolbox/base.py) – das Fenster nutzt ttk statt CustomTkinter
-BG, BG_LIST, FG, SUB, HOVER, AKZENT = "#0a1d2c", "#152736", "#e2e8f0", "#8fa3b8", "#213443", "#3ddc97"
-MARKIERT = "#1d4f47"             # markierte Zeilen (wie gewählte Einträge in der Toolbox)
-SCHRIFT, SCHRIFT_GRUPPE = ("Segoe UI", 9), ("Segoe UI Semibold", 10)       # Zeilen bzw. Gerätenamen
-GROESSE = (560, 640)             # Startgröße bei 100 % Skalierung
-TITELLEISTE = 32                 # Höhe der Windows-Titelleiste (zählt bei der Fenstergröße nicht mit)
-HINWEIS = "fenster.hinweis"      # ID des Hinweises in der Fußzeile (Klicken, Markieren, Kopieren)
+# ---------- The window ----------
+# the same colors as the dark Toolbox (toolbox/base.py) – the window uses ttk instead of CustomTkinter
+BG, BG_LIST, FG, SUB, HOVER, ACCENT = "#0a1d2c", "#152736", "#e2e8f0", "#8fa3b8", "#213443", "#3ddc97"
+SELECTED = "#1d4f47"             # selected rows (like selected entries in the Toolbox)
+FONT, FONT_GROUP = ("Segoe UI", 9), ("Segoe UI Semibold", 10)       # rows and device names
+SIZE = (560, 640)                # initial size at 100 % scaling
+TITLE_BAR = 32                   # height of the Windows title bar (doesn't count for the window size)
+HINT = "window.hint"             # ID of the hint in the footer (clicking, selecting, copying)
 
 
-class Detailfenster:
-    """Ein normales Fenster: verschieb- und vergrößerbar, ✕ blendet es nur aus. Position und Größe werden gespeichert.
+class DetailWindow:
+    """A normal window: movable and resizable, ✕ only hides it. Position and size are saved.
 
-    app (HardwareMonitorApp) liefert: settings, kinds (die angezeigten Icons), current, vorhanden, snapshot() und
-    fenster_braucht(geraete) – sagt dem Mess-Thread, welche Geräte gerade gebraucht werden (False = Fenster zu).
+    app (HardwareMonitorApp) provides: settings, kinds (the icons shown), current, present, snapshot() and
+    window_needs(devices) – tells the measuring thread which devices are needed right now (False = window closed).
     """
 
     def __init__(self, root, app):
         self.app = app
-        self.scale = root.winfo_fpixels("1i") / 96      # 1.0 bei 100 %, 1.5 bei 150 %
-        self.inhalt = None                               # das Modul detail_window_content
-        self.inhalt_stand = None                         # Änderungszeit der Datei beim letzten Laden
-        self.fehler = None                               # Fehlermeldung, falls die Datei nicht geladen werden konnte
+        self.scale = root.winfo_fpixels("1i") / 96      # 1.0 at 100 %, 1.5 at 150 %
+        self.content = None                              # the module detail_window_content
+        self.content_mtime = None                        # modification time of the file at the last load
+        self.error = None                                # error message if the file couldn't be loaded
         self.tabs = []                                   # [(Tab, Treeview)]
-        self.ausgeblendet_fuer = None                    # vorhandene Geräte, nach denen Tabs zuletzt ausgeblendet wurden
-        self.signatur = {}                               # je Treeview: Aufbau beim letzten Zeichnen
-        self.zugeklappt = {}                             # je Treeview: Schlüssel der zugeklappten Bereiche
-        self.sensoren = {}                               # Zeilen-Schlüssel -> Sensor (für die Erklärung)
-        self.kopierbar = {}                              # Zeilen-Schlüssel -> (Spalte, Text), den ein Klick kopiert
-        self.druck = None                                # gedrückte Maustaste in der Liste: Klick oder Ziehen?
-        self.schriften = {}                              # zum Ausmessen der Texte (ueber_wert)
-        self.knoepfe = {}                                # je Treeview: Bereichszeile -> „Kopieren“-Button darüber
-        self.meldung_job = None                          # „… kopiert“ steht gerade in der Fußzeile
-        self.hwdaten = None                              # zuletzt gelesene Hardwaredaten (hardware_data.lesen())
-        self.hwdaten_aktuell = False                     # False = beim nächsten Anzeigen neu lesen
-        self.hwdaten_thread = None
-        self.hwdaten_neu = None                          # Ergebnis des Lese-Threads, bis hwdaten_warten() es übernimmt
+        self.hidden_for = None                           # present devices by which tabs were last hidden
+        self.signature = {}                              # per Treeview: structure at the last drawing
+        self.collapsed = {}                              # per Treeview: keys of the collapsed areas
+        self.sensors = {}                                # row key -> sensor (for the explanation)
+        self.copyable = {}                               # row key -> (column, text) that a click copies
+        self.press = None                                # mouse button pressed in the list: click or drag?
+        self.fonts = {}                                  # for measuring the texts (over_value)
+        self.buttons = {}                                # per Treeview: category row -> "Copy" button above it
+        self.message_job = None                          # "… copied" is in the footer right now
+        self.hw_data = None                              # hardware data read last (hardware_data.read_all())
+        self.hw_data_current = False                     # False = read again the next time it's shown
+        self.hw_data_thread = None
+        self.hw_data_new = None                          # result of the reading thread until hw_data_wait() takes it
 
         win = self.win = tk.Toplevel(root)
-        self.hw_ansicht = tk.StringVar(win, "uebersicht")    # Unterreiter im Tab Hardwaredaten: uebersicht / details
+        self.hw_view = tk.StringVar(win, "overview")     # sub-tab in the tab Hardware data: overview / details
         win.withdraw()
-        win.title(str(PROGRAMM_DATEI))                   # Pfad wie beim Explorer – siehe PROGRAMM_DATEI
+        win.title(str(PROGRAM_FILE))                     # path like Explorer – see PROGRAM_FILE
         win.configure(bg=BG)
         win.minsize(self.px(320), self.px(240))
         try:
-            win.iconbitmap(str(ICON_DATEI))
+            win.iconbitmap(str(ICON_FILE))
         except tk.TclError:
             pass
-        self.stil(win)
+        self.style(win)
 
-        # Kopfzeile: die beiden Icon-Werte groß
-        kopf = ttk.Frame(win)
-        kopf.pack(fill="x", padx=self.px(14), pady=(self.px(10), self.px(4)))
-        self.kopf = {}
-        for kind in app.kinds:                           # wie die Taskleisten-Icons – ohne GPU-Temperatur nur CPU
-            ttk.Label(kopf, text=kind.upper(), style="KopfName.TLabel").pack(side="left", padx=(0, self.px(6)))
-            self.kopf[kind] = ttk.Label(kopf, text="–", style="KopfWert.TLabel")
-            self.kopf[kind].pack(side="left", padx=(0, self.px(24)))
+        # Header: the two icon values in large
+        header = ttk.Frame(win)
+        header.pack(fill="x", padx=self.px(14), pady=(self.px(10), self.px(4)))
+        self.header = {}
+        for kind in app.kinds:                           # like the taskbar icons – without GPU temperature only CPU
+            ttk.Label(header, text=kind.upper(), style="HeaderName.TLabel").pack(side="left", padx=(0, self.px(6)))
+            self.header[kind] = ttk.Label(header, text="–", style="HeaderValue.TLabel")
+            self.header[kind].pack(side="left", padx=(0, self.px(24)))
 
-        # ganz rechts das Zahnrad: Einstellungen des Monitors – die stehen auf seiner Seite in der Toolbox
-        zahnrad = ttk.Label(kopf, text="⚙", style="Zahnrad.TLabel", cursor="hand2")
-        zahnrad.pack(side="right")
-        zahnrad.bind("<Button-1>", lambda e: self.einstellungen_oeffnen())
-        zahnrad.bind("<Enter>", lambda e: (zahnrad.configure(foreground=AKZENT),
-                                           self.fusszeile(t("fenster.zahnrad"))))
-        zahnrad.bind("<Leave>", lambda e: (zahnrad.configure(foreground=SUB), self.fusszeile(t(HINWEIS))))
+        # far right the gear: settings of the monitor – they are on its page in the Toolbox
+        gear = ttk.Label(header, text="⚙", style="Gear.TLabel", cursor="hand2")
+        gear.pack(side="right")
+        gear.bind("<Button-1>", lambda e: self.open_settings())
+        gear.bind("<Enter>", lambda e: (gear.configure(foreground=ACCENT), self.footer(t("window.gear"))))
+        gear.bind("<Leave>", lambda e: (gear.configure(foreground=SUB), self.footer(t(HINT))))
 
-        # links davon: „Daten werden geladen …“, bis die erste passende Messung da ist, danach „● Live“
-        self.status = ttk.Label(kopf, style="KopfName.TLabel")
+        # left of it: "Loading data …" until the first matching measurement is there, then "● Live"
+        self.status = ttk.Label(header, style="HeaderName.TLabel")
         self.status.pack(side="right", padx=(0, self.px(12)))
-        self.live = None                                 # True = „● Live“ steht schon da (bleibt bis zum Schließen)
-        self.status_setzen(False)
+        self.live = None                                 # True = "● Live" is already shown (stays until closing)
+        self.set_status(False)
 
-        self.notebook = ttk.Notebook(win)
+        # left of the status: privacy mode on/off (the same as in the right-click menu of the icons)
+        self.privacy = ttk.Label(header, style="HeaderName.TLabel", cursor="hand2")
+        self.privacy.pack(side="right", padx=(0, self.px(16)))
+        self.privacy.bind("<Button-1>", lambda e: self.app.toggle_privacy())
+        self.privacy.bind("<Enter>", lambda e: (self.privacy.configure(foreground=FG), self.footer(t(
+            "window.privacy.on_help" if self.private() else "window.privacy.off_help"))))
+        self.privacy.bind("<Leave>", lambda e: (self.show_privacy(), self.footer(t(HINT))))
+        self.show_privacy()
+
+        # Tab bar: own buttons that wrap into a second row when the window is too narrow (ttk.Notebook would squeeze
+        # the titles until they're unreadable). The notebook below only switches the pages – its own tabs are hidden.
+        self.tab_bar = ttk.Frame(win, height=self.px(26))
+        self.tab_bar.pack(fill="x", padx=self.px(8))
+        self.tab_bar.bind("<Configure>", lambda e: self.flow_tabs())
+        self.tab_var = tk.IntVar(win, 0)
+        self.tab_buttons = []                            # one per entry in self.tabs (same index)
+        self.hidden_tabs = set()                         # indexes of tabs hidden by hide_missing_tabs()
+        self.notebook = ttk.Notebook(win, style="Pages.TNotebook")
         self.notebook.pack(fill="both", expand=True, padx=self.px(8))
-        self.notebook.bind("<<NotebookTabChanged>>", lambda e: (self.melden(), self.aktualisieren()))
+        self.notebook.bind("<<NotebookTabChanged>>", lambda e: (
+            self.tab_var.set(self.notebook.index("current")), self.report(), self.update(),
+            self.footer(self.tab_hint())))
 
-        self.fuss = ttk.Label(win, text=t(HINWEIS), style="Fuss.TLabel", justify="left")
-        self.fuss.pack(fill="x", padx=self.px(14), pady=self.px(8))
-        self.fuss.bind("<Configure>", lambda e: self.fuss.configure(wraplength=e.width))
+        self.foot = ttk.Label(win, text=t(HINT), style="Foot.TLabel", justify="left")
+        self.foot.pack(fill="x", padx=self.px(14), pady=self.px(8))
+        self.foot.bind("<Configure>", lambda e: self.foot.configure(wraplength=e.width))
 
-        win.protocol("WM_DELETE_WINDOW", self.verstecken)          # ✕ blendet nur aus
-        for taste in ("<Control-c>", "<Control-C>"):
-            win.bind(taste, lambda e: self.auswahl_kopieren())
-        for taste in ("<Control-a>", "<Control-A>"):
-            win.bind(taste, lambda e: self.alles_markieren())
-        win.bind("<Escape>", lambda e: self.tabs and self.aktiver_tab()[1].selection_set(()))
-        for event in ("<Map>", "<Unmap>"):                           # minimiert = nichts messen
-            win.bind(event, lambda e: e.widget is win and self.sichtbarkeit())
+        win.protocol("WM_DELETE_WINDOW", self.hide)                  # ✕ only hides
+        for key in ("<Control-c>", "<Control-C>"):
+            win.bind(key, lambda e: self.copy_selection())
+        for key in ("<Control-a>", "<Control-A>"):
+            win.bind(key, lambda e: self.select_all())
+        win.bind("<Escape>", lambda e: self.active_tree() and self.active_tree().selection_set(()))
+        for event in ("<Map>", "<Unmap>"):                           # minimized = measure nothing
+            win.bind(event, lambda e: e.widget is win and self.visibility_changed())
         win.update_idletasks()
-        dunkle_titelleiste(win)
+        dark_title_bar(win)
 
     def px(self, value):
         return int(value * self.scale)
 
-    def stil(self, win):
+    def style(self, win):
         style = ttk.Style(win)
-        style.theme_use("clam")                          # das einzige eingebaute Design, das sich dunkel färben lässt
+        style.theme_use("clam")                          # the only built-in theme that can be colored dark
         style.configure(".", background=BG, foreground=FG, bordercolor=BG, lightcolor=BG, darkcolor=BG,
-                        troughcolor=BG_LIST, focuscolor=BG, font=SCHRIFT)
-        style.configure("KopfName.TLabel", foreground=SUB, font=("Segoe UI", 11))
-        style.configure("KopfWert.TLabel", font=("Segoe UI Semibold", 18))
-        style.configure("Zahnrad.TLabel", foreground=SUB, font=("Segoe UI Symbol", 16))
-        style.configure("Fuss.TLabel", foreground=SUB)
-        style.configure("TNotebook", borderwidth=0, tabmargins=(0, 0, 0, 0))
-        style.configure("TNotebook.Tab", background=BG, foreground=SUB, borderwidth=0,
-                        padding=(self.px(8), self.px(4)))
-        style.map("TNotebook.Tab", background=[("selected", BG_LIST), ("active", HOVER)],
-                  foreground=[("selected", AKZENT), ("active", FG)],
-                  expand=[("selected", (0, 0, 0, 0))])  # gewählten Tab nicht vergrößern (sonst wird es eng)
+                        troughcolor=BG_LIST, focuscolor=BG, font=FONT)
+        style.configure("HeaderName.TLabel", foreground=SUB, font=("Segoe UI", 11))
+        style.configure("HeaderValue.TLabel", font=("Segoe UI Semibold", 18))
+        style.configure("Gear.TLabel", foreground=SUB, font=("Segoe UI Symbol", 16))
+        style.configure("Foot.TLabel", foreground=SUB)
+        style.configure("Pages.TNotebook", borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.layout("Pages.TNotebook.Tab", [])          # no tabs of its own – the tab bar above is made of buttons
+        style.configure("Tab.Toolbutton", background=BG, foreground=SUB, bordercolor=BG, lightcolor=BG,
+                        darkcolor=BG, borderwidth=0, padding=(self.px(8), self.px(4)))
+        style.map("Tab.Toolbutton", background=[("selected", BG_LIST), ("active", HOVER)],
+                  foreground=[("selected", ACCENT), ("active", FG)], lightcolor=[("selected", BG_LIST)],
+                  darkcolor=[("selected", BG_LIST)], bordercolor=[("selected", BG_LIST)])
         style.configure("Treeview", background=BG_LIST, fieldbackground=BG_LIST, foreground=FG, borderwidth=0,
                         rowheight=self.px(22))
-        style.map("Treeview", background=[("selected", MARKIERT)], foreground=[("selected", FG)],
-                  bordercolor=[("focus", BG)])           # kein heller Rahmen, wenn die Liste den Fokus hat
-        style.configure("Knopf.TButton", background=HOVER, foreground=AKZENT, bordercolor=HOVER, lightcolor=HOVER,
+        style.map("Treeview", background=[("selected", SELECTED)], foreground=[("selected", FG)],
+                  bordercolor=[("focus", BG)])           # no bright border when the list has the focus
+        style.configure("Small.TButton", background=HOVER, foreground=ACCENT, bordercolor=HOVER, lightcolor=HOVER,
                         darkcolor=HOVER, focuscolor=HOVER, borderwidth=0, padding=(self.px(8), self.px(2)), width=0)
-        style.map("Knopf.TButton", background=[("pressed", FG), ("active", AKZENT)],
-                  foreground=[("active", BG)], lightcolor=[("active", AKZENT)], darkcolor=[("active", AKZENT)],
-                  bordercolor=[("active", AKZENT)])
-        # Unterreiter im Tab Hardwaredaten: Radiobuttons ohne Punkt, gefärbt wie die Tabs darüber
-        style.configure("Unterreiter.Toolbutton", background=BG, foreground=SUB, bordercolor=BG, lightcolor=BG,
+        style.map("Small.TButton", background=[("pressed", FG), ("active", ACCENT)],
+                  foreground=[("active", BG)], lightcolor=[("active", ACCENT)], darkcolor=[("active", ACCENT)],
+                  bordercolor=[("active", ACCENT)])
+        # Sub-tabs in the tab Hardware data: radio buttons without a dot, colored like the tabs above
+        style.configure("SubTab.Toolbutton", background=BG, foreground=SUB, bordercolor=BG, lightcolor=BG,
                         darkcolor=BG, borderwidth=0, padding=(self.px(8), self.px(2)))
-        style.map("Unterreiter.Toolbutton", background=[("selected", BG_LIST), ("active", HOVER)],
-                  foreground=[("selected", AKZENT), ("active", FG)], lightcolor=[("selected", BG_LIST)],
+        style.map("SubTab.Toolbutton", background=[("selected", BG_LIST), ("active", HOVER)],
+                  foreground=[("selected", ACCENT), ("active", FG)], lightcolor=[("selected", BG_LIST)],
                   darkcolor=[("selected", BG_LIST)], bordercolor=[("selected", BG_LIST)])
         style.configure("Vertical.TScrollbar", background=HOVER, troughcolor=BG_LIST, bordercolor=BG_LIST,
                         arrowcolor=SUB, lightcolor=HOVER, darkcolor=HOVER, gripcount=0)
+        # Tab Power: tiles with a label, a large value and a line below it
+        style.configure("Tile.TFrame", background=BG_LIST)
+        style.configure("TileLabel.TLabel", background=BG_LIST, foreground=SUB, font=("Segoe UI", 8))
+        style.configure("TileValue.TLabel", background=BG_LIST, foreground=FG, font=("Segoe UI Semibold", 13))
 
-    # --- Inhalt laden ---
-    def inhalt_laden(self):
-        """Liest detail_window_content.py (neu), falls sie sich seit dem letzten Mal geändert hat."""
+    # --- Loading the content ---
+    def load_content(self):
+        """Reads detail_window_content.py (again) if it has changed since the last time."""
         try:
-            stand = INHALT_DATEI.stat().st_mtime
+            mtime = CONTENT_FILE.stat().st_mtime
         except OSError:
-            stand = None
-        if self.inhalt is not None and stand == self.inhalt_stand:
+            mtime = None
+        if self.content is not None and mtime == self.content_mtime:
             return
         try:
-            if self.inhalt is None:
-                import detail_window_content as modul
+            if self.content is None:
+                import detail_window_content as module
             else:
-                modul = importlib.reload(self.inhalt)
-            tabs = list(modul.FENSTER)
-        except Exception as fehler:                      # Tippfehler in der Datei -> Fenster läuft trotzdem
-            logging.exception("detail_window_content.py konnte nicht geladen werden")
-            self.inhalt_stand = stand
+                module = importlib.reload(self.content)
+            tabs = list(module.TABS)
+        except Exception as error:                       # typo in the file -> the window works anyway
+            logging.exception("detail_window_content.py could not be loaded")
+            self.content_mtime = mtime
             if not self.tabs:
-                self.tabs_bauen([Tab("tab.alles", AlleSensoren())])
-            self.fehler = f"⚠  {t('fenster.fehler_inhalt', fehler=fehler)}"
-            self.fuss.configure(text=self.fehler, foreground=hex_color(AMPEL["rot"]))
+                self.build_tabs([Tab("tab.all", AllSensors())])
+            self.error = f"⚠  {t('window.content_error', error=error)}"
+            self.foot.configure(text=self.error, foreground=hex_color(TRAFFIC_LIGHT["red"]))
             return
-        self.inhalt, self.inhalt_stand, self.fehler = modul, stand, None
-        self.fuss.configure(text=t(HINWEIS), foreground=SUB)
-        self.tabs_bauen(tabs)
+        self.content, self.content_mtime, self.error = module, mtime, None
+        self.foot.configure(text=t(HINT), foreground=SUB)
+        self.build_tabs(tabs)
 
-    def tabs_bauen(self, tabs):
-        gewaehlt = self.aktiver_tab()[0].titel if self.tabs else None
+    def build_tabs(self, tabs):
+        selected = self.active_tab()[0].title if self.tabs else None
         for tab_frame in self.notebook.tabs():
             self.notebook.forget(tab_frame)
         for _, tree in self.tabs:
             tree.master.destroy()
-        self.tabs, self.signatur, self.zugeklappt = [], {}, {}
-        self.ausgeblendet_fuer = None                    # neue Tabs sind alle sichtbar
+        self.tabs, self.signature, self.collapsed = [], {}, {}
+        self.hidden_for = None                           # new tabs are all visible
 
-        self.knoepfe = {}
+        self.buttons = {}
         for tab in tabs:
             frame = ttk.Frame(self.notebook)
-            if ist_hwdaten(tab):                         # oben: Unterreiter Übersicht / Details und „Alles kopieren“
-                leiste = ttk.Frame(frame)
-                leiste.pack(side="top", fill="x", pady=(self.px(6), self.px(4)))
-                for wert in ("uebersicht", "details"):
-                    reiter = ttk.Radiobutton(leiste, text=t(f"hw.{wert}"), value=wert, variable=self.hw_ansicht,
-                                             style="Unterreiter.Toolbutton", cursor="hand2",
-                                             command=self.aktualisieren)
-                    reiter.pack(side="left")
-                    reiter.bind("<Enter>", lambda e, w=wert: self.fusszeile(t(f"hw.{w}.hilfe")))
-                    reiter.bind("<Leave>", lambda e: self.fusszeile(t(HINWEIS)))
-                knopf = ttk.Button(leiste, text=f"⧉  {t('hw.alles_kopieren')}", style="Knopf.TButton",
-                                   cursor="hand2", command=self.alles_kopieren)
-                knopf.pack(side="right")
-                knopf.bind("<Enter>", lambda e: self.fusszeile(
-                    t("hw.alles_kopieren.uebersicht" if self.uebersicht() else "hw.alles_kopieren.details")))
-                knopf.bind("<Leave>", lambda e: self.fusszeile(t(HINWEIS)))
-            tree = ttk.Treeview(frame, columns=("wert", "balken"), show="tree", selectmode="extended")
-            if ist_hwdaten(tab):                         # Feldname links, langer Wert (IDs) daneben
-                tree.column("#0", width=self.px(300), stretch=True)     # breit genug für lange Gerätenamen
-                tree.column("wert", width=self.px(260), stretch=True, anchor="w")
-                tree.column("balken", width=0, minwidth=0, stretch=False)
+            if view_class(tab):                          # no sensor list: own view (energy_, fan_, drive_view.py)
+                frame.configure(padding=(self.px(6), 0))
+                self.notebook.add(frame, text=label_text(tab.title))
+                self.tabs.append((tab, view_class(tab)(frame, self)))
+                continue
+            if is_hardware_data(tab):                    # on top: sub-tabs Overview / Details and "Copy all"
+                bar_frame = ttk.Frame(frame)
+                bar_frame.pack(side="top", fill="x", pady=(self.px(6), self.px(4)))
+                for view in ("overview", "details"):
+                    sub_tab = ttk.Radiobutton(bar_frame, text=t(f"hw.{view}"), value=view, variable=self.hw_view,
+                                              style="SubTab.Toolbutton", cursor="hand2", command=self.update)
+                    sub_tab.pack(side="left")
+                    sub_tab.bind("<Enter>", lambda e, v=view: self.footer(t(f"hw.{v}.help")))
+                    sub_tab.bind("<Leave>", lambda e: self.footer(t(HINT)))
+                button = ttk.Button(bar_frame, text=f"⧉  {t('hw.copy_all')}", style="Small.TButton",
+                                    cursor="hand2", command=self.copy_all)
+                button.pack(side="right")
+                button.bind("<Enter>", lambda e: self.footer(
+                    t("hw.copy_all.overview" if self.overview() else "hw.copy_all.details")))
+                button.bind("<Leave>", lambda e: self.footer(t(HINT)))
+            tree = ttk.Treeview(frame, columns=("value", "bar"), show="tree", selectmode="extended")
+            if is_hardware_data(tab):                    # field name on the left, long value (IDs) next to it
+                tree.column("#0", width=self.px(300), stretch=True)     # wide enough for long device names
+                tree.column("value", width=self.px(260), stretch=True, anchor="w")
+                tree.column("bar", width=0, minwidth=0, stretch=False)
             else:
                 tree.column("#0", width=self.px(250), stretch=True)
-                tree.column("wert", width=self.px(100), stretch=False, anchor="e")
-                if mit_prozent(tab):                     # Balken mit „97 %“ dahinter: breiter, alle Balken links
-                    tree.column("balken", width=self.px(140), stretch=False, anchor="w")
+                tree.column("value", width=self.px(100), stretch=False, anchor="e")
+                if with_percent(tab):                    # bar with "97 %" behind it: wider, all bars left-aligned
+                    tree.column("bar", width=self.px(140), stretch=False, anchor="w")
                 else:
-                    tree.column("balken", width=self.px(100), stretch=False, anchor="center")
-            tree.tag_configure("bereich", foreground=SUB, font=("Segoe UI Semibold", 9))
-            tree.tag_configure("gruppe", font=SCHRIFT_GRUPPE)
-            tree.tag_configure("typ", foreground=SUB, font=("Segoe UI", 8))
-            tree.tag_configure("hinweis", foreground=SUB)
-            for stufe, rgb in AMPEL.items():             # Temperaturzeilen in Ampelfarbe
-                tree.tag_configure(stufe, foreground=hex_color(rgb))
+                    tree.column("bar", width=self.px(100), stretch=False, anchor="center")
+            tree.tag_configure("category", foreground=SUB, font=("Segoe UI Semibold", 9))
+            tree.tag_configure("group", font=FONT_GROUP)
+            tree.tag_configure("type", foreground=SUB, font=("Segoe UI", 8))
+            tree.tag_configure("hint", foreground=SUB)
+            for level, rgb in TRAFFIC_LIGHT.items():     # temperature rows in traffic-light color
+                tree.tag_configure(level, foreground=hex_color(rgb))
             scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
-            # die „Kopieren“-Buttons liegen über der Liste und wandern beim Scrollen, Auf-/Zuklappen und Vergrößern mit
-            tree.configure(yscrollcommand=lambda *a, s=scroll, t=tree: (s.set(*a), self.knoepfe_platzieren(t)))
+            # the "Copy" buttons lie on top of the list and move along when scrolling, expanding and resizing
+            tree.configure(yscrollcommand=lambda *a, s=scroll, tr=tree: (s.set(*a), self.place_buttons(tr)))
             for event in ("<Configure>", "<<TreeviewOpen>>", "<<TreeviewClose>>"):
-                tree.bind(event, lambda e, t=tree: self.win.after_idle(self.knoepfe_platzieren, t))
+                tree.bind(event, lambda e, tr=tree: self.win.after_idle(self.place_buttons, tr))
             scroll.pack(side="right", fill="y")
             tree.pack(side="left", fill="both", expand=True)
-            tree.bind("<Motion>", lambda e, t=tree: self.erklaeren(t, e))
-            tree.bind("<Leave>", lambda e, t=tree: self.erklaeren(t, None))
-            # Markieren per Klick, Strg+Klick und Umschalt+Klick macht ttk selbst – dazu kommen Ziehen und Kopieren
-            tree.bind("<ButtonPress-1>", lambda e, t=tree: self.druecken(t, e))
-            tree.bind("<B1-Motion>", lambda e, t=tree: self.ziehen(t, e))
-            tree.bind("<ButtonRelease-1>", lambda e, t=tree: self.loslassen(t, e))
-            tree.bind("<Button-3>", lambda e, t=tree: self.kontextmenue(t, e))
-            self.notebook.add(frame, text=beschriftung(tab.titel))
+            tree.bind("<Motion>", lambda e, tr=tree: self.describe(tr, e))
+            tree.bind("<Leave>", lambda e, tr=tree: self.describe(tr, None))
+            # selecting by click, Ctrl+click and Shift+click is done by ttk itself – dragging and copying come on top
+            tree.bind("<ButtonPress-1>", lambda e, tr=tree: self.on_press(tr, e))
+            tree.bind("<B1-Motion>", lambda e, tr=tree: self.on_drag(tr, e))
+            tree.bind("<ButtonRelease-1>", lambda e, tr=tree: self.on_release(tr, e))
+            tree.bind("<Button-3>", lambda e, tr=tree: self.context_menu(tr, e))
+            self.notebook.add(frame, text=label_text(tab.title))
             self.tabs.append((tab, tree))
 
-        titel = [tab.titel for tab, _ in self.tabs]
-        if gewaehlt in titel:
-            self.notebook.select(titel.index(gewaehlt))
+        for button in self.tab_buttons:
+            button.destroy()
+        self.tab_buttons, self.hidden_tabs = [], set()
+        for index, (tab, _) in enumerate(self.tabs):
+            self.tab_buttons.append(ttk.Radiobutton(
+                self.tab_bar, text=label_text(tab.title), value=index, variable=self.tab_var, style="Tab.Toolbutton",
+                cursor="hand2", command=lambda i=index: self.notebook.select(i)))
+        self.flow_tabs()
 
-    def aktiver_tab(self):
-        return self.tabs[self.notebook.index("current")]     # zählt ausgeblendete Tabs mit, passt also zu self.tabs
+        titles = [tab.title for tab, _ in self.tabs]
+        if selected in titles:
+            self.notebook.select(titles.index(selected))
+        self.tab_var.set(self.notebook.index("current") if self.tabs else 0)
 
-    def tabs_ausblenden(self):
-        """Tabs für Geräte ausblenden, die es auf diesem PC nicht gibt (z. B. Mainboard-Sensoren am Laptop).
-        Geht erst, wenn nach dem Start alle Hardware geladen ist – vorher sind alle Tabs zu sehen."""
-        vorhanden = self.app.vorhanden
-        if vorhanden is None or vorhanden == self.ausgeblendet_fuer:
+    def flow_tabs(self):
+        """Tab buttons side by side; whatever doesn't fit into the row anymore wraps into the next one."""
+        width = self.tab_bar.winfo_width()
+        if width <= 1:                                   # not laid out yet
+            width = self.px(SIZE[0] - 16)
+        x = y = row_height = 0
+        for index, button in enumerate(self.tab_buttons):
+            if index in self.hidden_tabs:
+                button.place_forget()
+                continue
+            w, h = button.winfo_reqwidth(), button.winfo_reqheight()
+            if x and x + w > width:
+                x, y, row_height = 0, y + row_height, 0
+            button.place(x=x, y=y)
+            x, row_height = x + w, max(row_height, h)
+        height = y + row_height
+        if height and height != self.tab_bar.winfo_reqheight():
+            self.tab_bar.configure(height=height)
+
+    def active_tab(self):
+        return self.tabs[self.notebook.index("current")]     # counts hidden tabs too, so it matches self.tabs
+
+    def tab_hint(self):
+        """Footer text when nothing else is shown: depends on the tab (list, Power, Fans)."""
+        view = self.active_tab()[1] if self.tabs else None
+        hints = {EnergyView: "power.hint", FanView: "fans.editor.help", DriveHealthView: "health.hint"}
+        return t(hints.get(type(view), HINT))
+
+    def active_tree(self):
+        """The list of the selected tab – or None (no tabs yet, or the tab Power, which has a chart instead)."""
+        if not self.tabs:
+            return None
+        tree = self.active_tab()[1]
+        return tree if isinstance(tree, ttk.Treeview) else None
+
+    def hide_missing_tabs(self):
+        """Hide tabs for devices this PC doesn't have (e.g. motherboard sensors on a laptop).
+        Only possible once all hardware is loaded after the start – until then all tabs are visible."""
+        present = self.app.present
+        if present is None or present == self.hidden_for:
             return
-        self.ausgeblendet_fuer = vorhanden               # vor hide(): das löst einen Tabwechsel und damit uns erneut aus
-        for tab, tree in self.tabs:
-            geraete = benoetigte_geraete(tab)            # leer bei Hardwaredaten, None bei AlleSensoren -> bleiben
-            if geraete and not geraete & vorhanden:
+        self.hidden_for = present                        # before hide(): that triggers a tab change and thus us again
+        for index, (tab, tree) in enumerate(self.tabs):
+            devices = needed_devices(tab)                # empty for Hardware data, None for AllSensors -> stay
+            if devices and not devices & (present | {"power", "health"}):   # not real devices – always there
+                self.hidden_tabs.add(index)
                 self.notebook.hide(tree.master)
+        self.flow_tabs()
 
-    # --- Zeigen / verstecken ---
-    def sichtbar(self):
-        return self.win.state() in ("normal", "zoomed")      # zoomed = maximiert
+    # --- Show / hide ---
+    def visible(self):
+        return self.win.state() in ("normal", "zoomed")      # zoomed = maximized
 
-    def umschalten(self):
-        self.verstecken() if self.sichtbar() else self.zeigen()
+    def toggle(self):
+        self.hide() if self.visible() else self.show()
 
-    def zeigen(self):
-        self.inhalt_laden()
+    def show(self, tab=None):
+        """Show the window – with tab (title ID, e.g. "tab.power") on that tab."""
+        self.load_content()
+        titles = [shown_tab.title for shown_tab, _ in self.tabs]
+        if tab in titles:
+            self.notebook.select(titles.index(tab))
         if self.win.state() == "withdrawn":
-            self.platzieren()
+            self.place()
         self.win.deiconify()
         self.win.lift()
         self.win.focus_force()
-        self.aktualisieren()
+        self.update()
 
-    def verstecken(self):
-        self.speichern()
+    def hide(self):
+        self.save_geometry()
         self.win.withdraw()
 
-    def platzieren(self):
-        """Gespeicherte Position – oder beim ersten Mal unten rechts auf dem Bildschirm, wo geklickt wurde."""
+    def place(self):
+        """Saved position – or the first time at the bottom right of the screen where the click happened."""
         saved = self.app.settings.get("window", "")
         match = re.fullmatch(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)", saved)
         if match:
             w, h, x, y = map(int, match.groups())
-            if arbeitsbereich(x + w // 2, y + h // 2):   # liegt noch auf einem angeschlossenen Bildschirm?
+            if work_area(x + w // 2, y + h // 2):        # still on a connected screen?
                 self.win.geometry(saved)
                 return
         mx, my = self.win.winfo_pointerxy()
-        left, top, right, bottom = (arbeitsbereich(mx, my)
+        left, top, right, bottom = (work_area(mx, my)
                                     or (0, 0, self.win.winfo_screenwidth(), self.win.winfo_screenheight()))
-        w, h = self.px(GROESSE[0]), min(self.px(GROESSE[1]), bottom - top - self.px(24 + TITELLEISTE))
-        self.win.geometry(f"{w}x{h}+{right - w - self.px(12)}+{bottom - h - self.px(12 + TITELLEISTE)}")
+        w, h = self.px(SIZE[0]), min(self.px(SIZE[1]), bottom - top - self.px(24 + TITLE_BAR))
+        self.win.geometry(f"{w}x{h}+{right - w - self.px(12)}+{bottom - h - self.px(12 + TITLE_BAR)}")
 
-    def speichern(self):
-        """Position und Größe merken (in daten\\hardware_monitor.json)."""
-        if self.sichtbar():
-            self.app.fenster_geometrie(self.win.geometry())
+    def save_geometry(self):
+        """Remember position and size (in data\\hardware_monitor.json)."""
+        if self.visible():
+            self.app.window_geometry(self.win.geometry())
 
-    def sichtbarkeit(self):
-        """Fenster geöffnet oder wiederhergestellt -> sofort messen lassen; versteckt oder minimiert -> nichts messen."""
-        if not self.sichtbar():
-            self.status_setzen(False, neu=True)          # beim nächsten Öffnen erst wieder „Daten werden geladen …“
-            self.hwdaten_aktuell = False                 # beim nächsten Öffnen neu lesen (z. B. neue USB-Geräte)
-        self.melden()
+    def visibility_changed(self):
+        """Window opened or restored -> measure right away; hidden or minimized -> measure nothing."""
+        if not self.visible():
+            self.set_status(False, reset=True)           # the next time it opens, "Loading data …" first again
+            self.hw_data_current = False                 # read again the next time it opens (e.g. new USB devices)
+        self.report()
 
-    def status_setzen(self, geladen, neu=False):
-        """Oben rechts: „● Live“, sobald nach dem Öffnen die ersten Werte da sind, vorher „Daten werden geladen …“.
-        Einmal „Live“, bleibt es dabei bis zum Schließen – auch wenn ein Tabwechsel kurz auf neue Werte wartet.
-        neu=True setzt zurück (Fenster geschlossen oder minimiert)."""
-        live = bool(geladen or (self.live and not neu))
+    def set_status(self, loaded, reset=False):
+        """Top right: "● Live" as soon as the first values are there after opening, before that "Loading data …".
+        Once "Live", it stays until closing – even if a tab change briefly waits for new values.
+        reset=True resets it (window closed or minimized)."""
+        live = bool(loaded or (self.live and not reset))
         if live != self.live:
             self.live = live
-            self.status.configure(text=f"●  {t('fenster.live')}" if live else t("fenster.laedt"),
-                                  foreground=AKZENT if live else SUB)
+            self.status.configure(text=f"●  {t('window.live')}" if live else t("window.loading"),
+                                  foreground=ACCENT if live else SUB)
 
-    def sprache_gewechselt(self):
-        """In der Toolbox wurde die Sprache umgestellt: Tabs und alle festen Texte sofort neu – die Hardwaredaten
-        werden in der neuen Sprache neu gelesen. Ist das Fenster zu, passiert das beim nächsten Öffnen."""
-        self.hwdaten_aktuell = False
-        self.inhalt_stand = None                         # inhalt_laden() baut die Tabs dann neu
+    def private(self):
+        """True while privacy mode is on."""
+        return bool(self.app.settings.get("privacy_mode"))
+
+    def show_privacy(self):
+        """Switch in the header and window title according to privacy mode. The title normally shows the path of
+        the program – it can contain the Windows user name (C:\\Users\\<name>\\…), so in privacy mode only the name."""
+        on = self.private()
+        self.privacy.configure(text=f"{'☑' if on else '☐'}  {t('window.privacy')}", foreground=ACCENT if on else SUB)
+        title = t("program.name") if on else str(PROGRAM_FILE)
+        if self.win.title() != title:
+            self.win.title(title)
+
+    def privacy_changed(self):
+        """Privacy mode was switched (here, in the right-click menu or in the Toolbox): show everything anew."""
+        self.show_privacy()
+        if self.message_job:
+            self.win.after_cancel(self.message_job)
+            self.message_end()
+        self.update()
+
+    def language_changed(self):
+        """The language was switched in the Toolbox: tabs and all fixed texts are renewed right away – the hardware
+        data is read again in the new language. If the window is closed, that happens the next time it opens."""
+        self.hw_data_current = False
+        self.content_mtime = None                        # load_content() then rebuilds the tabs
         live, self.live = self.live, None
-        self.status_setzen(live)
-        if self.meldung_job:
-            self.win.after_cancel(self.meldung_job)
-        self.meldung_ende()                              # Fußzeile in der neuen Sprache
-        if self.sichtbar():
-            self.inhalt_laden()
-            self.aktualisieren()
+        self.set_status(live)
+        self.show_privacy()
+        if self.message_job:
+            self.win.after_cancel(self.message_job)
+        self.message_end()                               # footer in the new language
+        if self.visible():
+            self.load_content()
+            self.update()
 
-    def einstellungen_oeffnen(self):
-        """Zahnrad: die Toolbox auf der Seite des Hardware-Monitors öffnen (im Hintergrund, toolbox_oeffnen)."""
-        ergebnis = []
-        threading.Thread(target=lambda: ergebnis.append(toolbox_oeffnen()), daemon=True).start()
+    def open_settings(self):
+        """Gear: open the Toolbox on the Hardware Monitor's page (in the background, open_toolbox)."""
+        result = []
+        threading.Thread(target=lambda: result.append(open_toolbox()), daemon=True).start()
 
-        def warten():
-            if not ergebnis:
-                self.win.after(250, warten)
-            elif not ergebnis[0]:
-                self.bestaetigen(t("fenster.toolbox_fehler"), farbe=hex_color(AMPEL["rot"]))
+        def wait():
+            if not result:
+                self.win.after(250, wait)
+            elif not result[0]:
+                self.confirm(t("window.toolbox_error"), color=hex_color(TRAFFIC_LIGHT["red"]))
 
-        self.win.after(250, warten)
+        self.win.after(250, wait)
 
-    def melden(self):
-        """Dem Mess-Thread sagen, was gebraucht wird: die Geräte des gewählten Tabs – oder nichts (Fenster zu)."""
-        if self.sichtbar() and self.tabs:
-            self.app.fenster_braucht(benoetigte_geraete(self.aktiver_tab()[0]))
+    def report(self):
+        """Tell the measuring thread what's needed: the devices of the selected tab – or nothing (window closed)."""
+        if self.visible() and self.tabs:
+            self.app.window_needs(needed_devices(self.active_tab()[0]))
         else:
-            self.app.fenster_braucht(False)
+            self.app.window_needs(False)
 
-    # --- Werte anzeigen ---
-    def aktualisieren(self):
-        """Neue Messwerte eintragen. Ändert sich der Aufbau (anderer Tab, neue Sensoren), wird die Liste neu gefüllt."""
-        if not self.sichtbar() or not self.tabs:
+    # --- Showing values ---
+    def update(self):
+        """Fill in new measurements. If the structure changes (other tab, new sensors), the list is refilled."""
+        if not self.visible() or not self.tabs:
             return
-        self.tabs_ausblenden()
+        self.hide_missing_tabs()
+        self.show_privacy()                              # e.g. switched in the Toolbox in the meantime
         snap = self.app.snapshot()
-        for kind, label in self.kopf.items():
+        for kind, label in self.header.items():
             value = self.app.current.get(kind)
             label.configure(text="–" if value is None else f"{value:.0f} °C",
                             foreground=hex_color(temp_color(value, self.app.settings, kind)))
 
-        tab, tree = self.aktiver_tab()
-        info = ist_hwdaten(tab)
+        tab, tree = self.active_tab()
+        if isinstance(tree, EnergyView):                 # tab Power: tiles and chart instead of a list
+            self.set_status(self.app.power_now is not None)
+            tree.update()
+            return
+        if isinstance(tree, FanView):                    # tab Fans: list of fans and the curve editor
+            measured = snap.get("devices")
+            self.set_status(self.app.hardware_ready and (measured is None or {"gpu", "motherboard"} <= measured))
+            tree.update()
+            return
+        if isinstance(tree, DriveHealthView):            # tab Drive health: drives and SMART table
+            self.set_status(self.app.drive_health is not None)
+            tree.update()
+            return
+        info = is_hardware_data(tab)
         if info:
-            self.hwdaten_laden()
-            rows = hwdaten_zeilen(self.hwdaten or [], self.uebersicht())
-            leer = t("hw.keine_daten") if self.hwdaten == [] else t("hw.lese")
-            geladen = self.hwdaten_aktuell
+            self.load_hw_data()
+            tab_rows = hardware_data_rows(self.hw_data or [], self.overview(), self.private())
+            empty = t("hw.no_data") if self.hw_data == [] else t("hw.reading")
+            loaded = self.hw_data_current
         else:
-            gebraucht, gemessen = benoetigte_geraete(tab), snap.get("geraete")
-            if gemessen is not None and (gebraucht is None or not gebraucht <= gemessen):
-                rows = []                                # passende Messung kommt gleich
-                leer = t("fenster.lade_sensoren")
-                geladen = False
+            needed, measured = needed_devices(tab), snap.get("devices")
+            if measured is not None and (needed is None or not needed <= measured):
+                tab_rows = []                            # a matching measurement is coming right away
+                empty = t("window.loading_sensors")
+                loaded = False
             else:
-                rows = zeilen(tab, snap)
-                leer = t("fenster.keine_sensoren")
-                geladen = True
-            if snap.get("loading"):                      # direkt nach dem Programmstart wird noch Hardware nachgeladen
-                leer = t("fenster.lade_sensoren")
-                geladen = False
-        self.status_setzen(geladen)
+                tab_rows = rows(tab, snap)
+                empty = t("window.no_sensors")
+                loaded = True
+            if snap.get("loading"):                      # right after the program start hardware is still loading
+                empty = t("window.loading_sensors")
+                loaded = False
+        self.set_status(loaded)
 
-        signatur = [(key, parent, text) for key, parent, text, _ in rows] or [leer]
-        if signatur != self.signatur.get(tree):
-            zu = self.zugeklappt.setdefault(tree, set())  # zugeklappte Bereiche bleiben zu (z. B. nach einem Tabwechsel)
-            for key in sichtbare_zeilen(tree):
+        signature = [(key, parent, text) for key, parent, text, _ in tab_rows] or [empty]
+        if signature != self.signature.get(tree):
+            collapsed = self.collapsed.setdefault(tree, set())   # collapsed areas stay collapsed (e.g. after a tab change)
+            for key in visible_rows(tree):
                 if tree.get_children(key):
-                    (zu.add if not tree.item(key, "open") else zu.discard)(key)
+                    (collapsed.add if not tree.item(key, "open") else collapsed.discard)(key)
             tree.delete(*tree.get_children())
-            for key, parent, text, sensor in rows:
+            for key, parent, text, sensor in tab_rows:
                 if sensor:
                     tag = ()
-                elif not parent:                         # oberste Ebene: Gerät – bei Hardwaredaten der Bereich
-                    tag = ("bereich",) if info else ("gruppe",)
-                else:                                    # zweite Ebene: Sensortyp – bei Hardwaredaten das Gerät
-                    tag = ("gruppe",) if info else ("typ",)
-                tree.insert(parent, "end", iid=key, text=text, open=key not in zu, tags=tag)
-            if not rows:
-                tree.insert("", "end", iid="leer", text=leer, tags=("hinweis",))
-            self.signatur[tree] = signatur
+                elif not parent:                         # top level: device – for Hardware data the category
+                    tag = ("category",) if info else ("group",)
+                else:                                    # second level: sensor type – for Hardware data the device
+                    tag = ("group",) if info else ("type",)
+                tree.insert(parent, "end", iid=key, text=text, open=key not in collapsed, tags=tag)
+            if not tab_rows:
+                tree.insert("", "end", iid="empty", text=empty, tags=("hint",))
+            self.signature[tree] = signature
             if info:
-                self.hw_spalten(tree)
-                self.knoepfe_bauen(tree, [(f"b{b}", bereich) for b, (bereich, _) in enumerate(self.hwdaten or [])])
+                self.hw_columns(tree)
+                self.build_buttons(tree, [(f"c{c}", category) for c, (category, _) in enumerate(self.hw_data or [])])
 
-        self.sensoren, self.kopierbar = {}, {}
-        geraet_von = {s["id"]: hw["geraet"] for hw in snap["hardware"] for s in hw["sensors"]}
-        for key, _, text, sensor in rows:
+        self.sensors, self.copyable = {}, {}
+        device_of = {s["id"]: hw["device"] for hw in snap["hardware"] for s in hw["sensors"]}
+        for key, _, text, sensor in tab_rows:
             if sensor is None:
-                if "gruppe" in tree.item(key, "tags"):  # Gerätename -> Klick darauf kopiert ihn
-                    self.kopierbar[key] = ("#0", text)
+                if "group" in tree.item(key, "tags"):    # device name -> clicking it copies it
+                    self.copyable[key] = ("#0", text)
                 continue
-            self.sensoren[key] = sensor
-            if sensor["type"] == "Info":                 # Hardwaredaten: fester Wert, Klick darauf kopiert ihn
-                self.kopierbar[key] = ("#1", sensor["value"])
+            self.sensors[key] = sensor
+            if sensor["type"] == "Info":                 # Hardware data: fixed value, clicking it copies it
+                self.copyable[key] = ("#1", sensor["value"])
                 tree.item(key, values=(sensor["value"], ""))
                 continue
             is_temp = (sensor["type"] == "Temperature"
-                       and not any(fnmatch.fnmatchcase(sensor["name"], m) for m in OHNE_AMPEL))
-            wert = fmt_value(sensor["type"], sensor["value"])
-            leiste = balken(sensor["value"]) if sensor["type"] in BAR_TYPES else ""
-            # Grafikkarte nach den GPU-Grenzen, alles andere (CPU, Mainboard, Laufwerke …) nach den CPU-Grenzen
-            kind = "gpu" if geraet_von.get(sensor["id"]) == "gpu" else "cpu"
-            tags = (temp_stufe(sensor["value"], self.app.settings, kind),) if is_temp else ()
-            neben = sensor.get("balken")                 # zweiter Wert in derselben Zeile, z. B. Lüfter-Ansteuerung
-            if neben:
-                leiste = f"{balken(neben['value'])}  {fmt_value(neben['type'], neben['value'])}"
+                       and not any(fnmatch.fnmatchcase(sensor["name"], m) for m in NO_TRAFFIC_LIGHT))
+            value = fmt_value(sensor["type"], sensor["value"])
+            bar_text = bar(sensor["value"]) if sensor["type"] in BAR_TYPES else ""
+            # graphics card by the GPU limits, everything else (CPU, motherboard, drives …) by the CPU limits
+            kind = "gpu" if device_of.get(sensor["id"]) == "gpu" else "cpu"
+            tags = (temp_level(sensor["value"], self.app.settings, kind),) if is_temp else ()
+            second = sensor.get("bar")                   # second value in the same row, e.g. fan control
+            if second:
+                bar_text = f"{bar(second['value'])}  {fmt_value(second['type'], second['value'])}"
                 if sensor["type"] == "Fan" and sensor["value"] == 0:
-                    wert, tags = t("wert.steht"), ("grau",)    # angesteuert, dreht sich aber nicht (oder nichts dran)
-            self.kopierbar[key] = ("#1", wert)           # Messwert, so wie er gerade dasteht
-            tree.item(key, values=(wert, leiste), tags=tags)
+                    value, tags = t("value.stopped"), ("gray",)    # driven, but not spinning (or nothing attached)
+            self.copyable[key] = ("#1", value)           # measurement as it is shown right now
+            tree.item(key, values=(value, bar_text), tags=tags)
 
-    def erklaeren(self, tree, event):
-        """Maus über der Liste (event None = verlassen): Hand-Cursor genau über kopierbaren Werten, in der Fußzeile
-        die Erklärung der Zeile."""
+    def describe(self, tree, event):
+        """Mouse over the list (event None = left): hand cursor exactly over copyable values, the explanation of the
+        row in the footer."""
         key = tree.identify_row(event.y) if event else None
-        tree.configure(cursor="hand2" if key and self.ueber_wert(tree, key, event.x) else "")
-        if self.fehler or self.meldung_job:
-            return                                       # Fehlermeldung bzw. „… kopiert“ stehen lassen
-        sensor = self.sensoren.get(key)
+        tree.configure(cursor="hand2" if key and self.over_value(tree, key, event.x) else "")
+        if self.error or self.message_job:
+            return                                       # leave the error message or "… copied" in place
+        sensor = self.sensors.get(key)
         if sensor and sensor["type"] == "Info":
-            erklaerung = hardware_data.erklaerung(sensor["feld"])
-            text = (f"{sensor['name']}: {sensor['value']}\n"     # voller Wert, falls die Spalte zu schmal ist
-                    f"{erklaerung + ' ' if erklaerung else ''}{t('fenster.klick_wert')}")
+            explanation = hardware_data.explanation(sensor["field"])
+            text = (f"{sensor['name']}: {sensor['value']}\n"     # full value in case the column is too narrow
+                    f"{explanation + ' ' if explanation else ''}"
+                    f"{t('window.privacy.hidden') if sensor.get('hidden') else t('window.click_value')}")
         elif sensor:
-            text = f"{sensor['name']}: {erklaere(sensor, self.inhalt)}"
-            if sensor.get("balken"):
-                text += " " + t("fenster.der_balken", text=erklaere(sensor["balken"], self.inhalt))
-            if sensor.get("balken") and sensor["type"] == "Fan" and sensor["value"] == 0:
-                text += " " + t("fenster.steht_erklaerung")
-        elif key in self.kopierbar:
-            text = t("fenster.klick_name", name=self.kopierbar[key][1])
+            text = f"{sensor['name']}: {explain(sensor, self.content)}"
+            if sensor.get("bar"):
+                text += " " + t("window.the_bar", text=explain(sensor["bar"], self.content))
+            if sensor.get("bar") and sensor["type"] == "Fan" and sensor["value"] == 0:
+                text += " " + t("window.stopped_explained")
+        elif key in self.copyable:
+            text = t("window.click_name", name=self.copyable[key][1])
         else:
-            text = t(HINWEIS)
-        self.fuss.configure(text=text, foreground=SUB)
+            text = t(HINT)
+        self.foot.configure(text=text, foreground=SUB)
 
-    def fusszeile(self, text):
-        """Hilfetext der Buttons (Maus drüber) – Fehlermeldung und „… kopiert“ haben Vorrang."""
-        if not (self.fehler or self.meldung_job):
-            self.fuss.configure(text=text, foreground=SUB)
+    def footer(self, text):
+        """Help text of the buttons (mouse over) – error message and "… copied" take precedence."""
+        if not (self.error or self.message_job):
+            self.foot.configure(text=text, foreground=SUB)
 
-    # --- Markieren und Kopieren ---
-    # Ein Klick markiert die Zeile (das macht ttk, ebenso Strg+Klick und Umschalt+Klick). Liegt er genau auf einem
-    # Wert oder Gerätenamen, wird der zusätzlich kopiert – auf der Beschriftung davor oder im Leeren dahinter nicht.
-    # Mit gedrückter Maustaste über mehrere Zeilen ziehen markiert alle dazwischen; Strg+C kopiert die markierten.
-    def druecken(self, tree, event):
-        """Maustaste gedrückt: nur merken, wo – erst beim Loslassen steht fest, ob es ein Klick war oder Ziehen."""
+    # --- Selecting and copying ---
+    # A click selects the row (ttk does that, as well as Ctrl+click and Shift+click). If it is exactly on a value
+    # or device name, that is copied as well – not on the label in front of it or in the empty space behind it.
+    # Dragging over several rows with the mouse button pressed selects all in between; Ctrl+C copies the selected.
+    def on_press(self, tree, event):
+        """Mouse button pressed: only remember where – only on release is it clear whether it was a click or a drag."""
         key = tree.identify_row(event.y)
         tree.focus_set()
         if not key:
-            tree.selection_set(())                       # Klick ins Leere hebt die Markierung auf
-        self.druck = {"key": key, "x": event.x, "gezogen": False,
-                      "taste": bool(event.state & 0x0005),          # Umschalt oder Strg: nur markieren
-                      "dreieck": tree.identify_element(event.x, event.y).endswith("indicator")}  # nur auf-/zuklappen
+            tree.selection_set(())                       # a click into empty space clears the selection
+        self.press = {"key": key, "x": event.x, "dragged": False,
+                      "modifier": bool(event.state & 0x0005),        # Shift or Ctrl: only select
+                      "arrow": tree.identify_element(event.x, event.y).endswith("indicator")}  # only expand/collapse
 
-    def ziehen(self, tree, event):
-        """Mit gedrückter Maustaste über mehrere Zeilen: alle dazwischen markieren. Am Rand wird mitgescrollt."""
-        d = self.druck
-        if not d or not d["key"] or d["taste"] or d["dreieck"]:
+    def on_drag(self, tree, event):
+        """With the mouse button pressed over several rows: select all in between. At the edge it scrolls along."""
+        p = self.press
+        if not p or not p["key"] or p["modifier"] or p["arrow"]:
             return
         if event.y < 0:
             tree.yview_scroll(-1, "units")
@@ -842,199 +989,198 @@ class Detailfenster:
             key = tree.identify_row(tree.winfo_height() - 2)
         else:
             key = tree.identify_row(event.y)
-        if not key or (key == d["key"] and not d["gezogen"]):
+        if not key or (key == p["key"] and not p["dragged"]):
             return
-        zeilen = list(sichtbare_zeilen(tree))
-        if d["key"] not in zeilen or key not in zeilen:  # Liste wurde inzwischen neu aufgebaut
+        keys = list(visible_rows(tree))
+        if p["key"] not in keys or key not in keys:      # the list has been rebuilt in the meantime
             return
-        d["gezogen"] = True
-        a, b = sorted((zeilen.index(d["key"]), zeilen.index(key)))
-        tree.selection_set(zeilen[a:b + 1])
+        p["dragged"] = True
+        a, b = sorted((keys.index(p["key"]), keys.index(key)))
+        tree.selection_set(keys[a:b + 1])
 
-    def loslassen(self, tree, event):
-        """Ein einfacher Klick (nicht gezogen, ohne Strg/Umschalt) genau auf einen Wert kopiert ihn."""
-        d, self.druck = self.druck, None
-        if not d or d["gezogen"] or d["taste"] or d["dreieck"] or tree.identify_row(event.y) != d["key"]:
+    def on_release(self, tree, event):
+        """A simple click (not dragged, without Ctrl/Shift) exactly on a value copies it."""
+        p, self.press = self.press, None
+        if not p or p["dragged"] or p["modifier"] or p["arrow"] or tree.identify_row(event.y) != p["key"]:
             return
-        text = self.ueber_wert(tree, d["key"], d["x"])
+        text = self.over_value(tree, p["key"], p["x"])
         if text:
-            self.zwischenablage(text, t("fenster.kopiert", text=text))
+            self.to_clipboard(text, t("window.copied", text=text))
 
-    def ueber_wert(self, tree, key, x):
-        """Der Text, den ein Klick an Stelle x in Zeile key kopiert – nur direkt auf dem Wert bzw. Gerätenamen, nicht
-        auf der Beschriftung daneben (z. B. „Produkt-ID“) oder im Leeren dahinter. Sonst None."""
-        spalte, text = self.kopierbar.get(key, (None, None))
-        box = tree.bbox(key, spalte) if text and tree.identify_column(x) == spalte else ""
+    def over_value(self, tree, key, x):
+        """The text a click at position x in row key copies – only directly on the value or device name, not on the
+        label next to it (e.g. "Product ID") or in the empty space behind it. Otherwise None."""
+        column, text = self.copyable.get(key, (None, None))
+        box = tree.bbox(key, column) if text and tree.identify_column(x) == column else ""
         if not box:
             return None
-        links, oben, breite, hoehe = box
-        schrift = SCHRIFT_GRUPPE if "gruppe" in tree.item(key, "tags") else SCHRIFT
-        if schrift not in self.schriften:
-            self.schriften[schrift] = tkfont.Font(self.win, font=schrift)
-        laenge = self.schriften[schrift].measure(text)
-        if spalte == "#0":                               # Name: beginnt hinter Einrückung und Dreieck
-            start = links
-            while start < links + breite and tree.identify_element(start, oben + hoehe // 2) != "text":
+        left, top, width, height = box
+        font = FONT_GROUP if "group" in tree.item(key, "tags") else FONT
+        if font not in self.fonts:
+            self.fonts[font] = tkfont.Font(self.win, font=font)
+        length = self.fonts[font].measure(text)
+        if column == "#0":                               # name: starts behind the indentation and the arrow
+            start = left
+            while start < left + width and tree.identify_element(start, top + height // 2) != "text":
                 start += 1
-        elif str(tree.column(spalte, "anchor")) == "e":  # Messwerte stehen rechtsbündig (str: Tk liefert ein Tcl-Objekt)
-            start = links + breite - self.px(5) - laenge
+        elif str(tree.column(column, "anchor")) == "e":  # measurements are right-aligned (str: Tk returns a Tcl object)
+            start = left + width - self.px(5) - length
         else:
-            start = links + self.px(5)                   # ttk lässt links etwa 5 px frei
-        return text if start - self.px(4) <= x <= start + laenge + self.px(4) else None
+            start = left + self.px(5)                    # ttk leaves about 5 px free on the left
+        return text if start - self.px(4) <= x <= start + length + self.px(4) else None
 
-    def zeile_als_text(self, tree, key):
-        """Eine Zeile zum Kopieren: „Feld: Wert“ – Überschriften (Gerät, Bereich, Sensortyp) nur mit ihrem Namen."""
-        spalte, wert = self.kopierbar.get(key, (None, None))
+    def row_as_text(self, tree, key):
+        """One row for copying: "Field: value" – headings (device, category, sensor type) only with their name."""
+        column, value = self.copyable.get(key, (None, None))
         name = tree.item(key, "text")
-        neben = self.sensoren.get(key, {}).get("balken")
-        if neben:                                        # z. B. „Fan #2: 2523 RPM, 97 %“
-            wert = f"{wert}, {fmt_value(neben['type'], neben['value'])}"
-        return f"{name}: {wert}" if spalte == "#1" else name
+        second = self.sensors.get(key, {}).get("bar")
+        if second:                                       # e.g. "Fan #2: 2523 RPM, 97 %"
+            value = f"{value}, {fmt_value(second['type'], second['value'])}"
+        return f"{name}: {value}" if column == "#1" else name
 
-    def auswahl_kopieren(self):
-        """Strg+C: die markierten Zeilen des Tabs als Text, eingerückt wie in der Liste."""
-        if not self.tabs:
+    def copy_selection(self):
+        """Ctrl+C: the selected rows of the tab as text, indented like in the list."""
+        tree = self.active_tree()
+        if not tree:
             return
-        tree = self.aktiver_tab()[1]
-        markiert = set(tree.selection())
-        zeilen = [key for key in sichtbare_zeilen(tree) if key in markiert and key != "leer"]
-        if not zeilen:
-            self.bestaetigen(t("fenster.nichts_markiert"), farbe=SUB)
+        selected = set(tree.selection())
+        keys = [key for key in visible_rows(tree) if key in selected and key != "empty"]
+        if not keys:
+            self.confirm(t("window.nothing_selected"), color=SUB)
             return
-        tiefe = {key: len(list(vorfahren(tree, key))) for key in zeilen}
-        oben = min(tiefe.values())
-        text = "\n".join("  " * (tiefe[key] - oben) + self.zeile_als_text(tree, key) for key in zeilen)
-        self.zwischenablage(text, t("fenster.eine_zeile_kopiert") if len(zeilen) == 1
-                            else t("fenster.zeilen_kopiert", n=len(zeilen)))
+        depth = {key: len(list(ancestors(tree, key))) for key in keys}
+        top = min(depth.values())
+        text = "\n".join("  " * (depth[key] - top) + self.row_as_text(tree, key) for key in keys)
+        self.to_clipboard(text, t("window.one_row_copied") if len(keys) == 1
+                          else t("window.rows_copied", n=len(keys)))
 
-    def alles_markieren(self):
-        """Strg+A: alle sichtbaren Zeilen des Tabs (zugeklappte bleiben außen vor)."""
-        if self.tabs:
-            tree = self.aktiver_tab()[1]
-            tree.selection_set([key for key in sichtbare_zeilen(tree) if key != "leer"])
+    def select_all(self):
+        """Ctrl+A: all visible rows of the tab (collapsed ones are left out)."""
+        tree = self.active_tree()
+        if tree:
+            tree.selection_set([key for key in visible_rows(tree) if key != "empty"])
         return "break"
 
-    def kontextmenue(self, tree, event):
-        """Rechtsklick: Wert kopieren, markierte Zeilen kopieren, alles markieren. Eine nicht markierte Zeile wird
-        vorher markiert (wie im Explorer)."""
+    def context_menu(self, tree, event):
+        """Right-click: copy value, copy selected rows, select all. A row that isn't selected gets selected first
+        (like in Explorer)."""
         key = tree.identify_row(event.y)
         if key and key not in tree.selection():
             tree.selection_set(key)
-        menue = tk.Menu(self.win, tearoff=False, bg=BG_LIST, fg=FG, activebackground=HOVER, activeforeground=FG,
-                        disabledforeground=SUB, bd=0, font=SCHRIFT)
-        spalte, wert = self.kopierbar.get(key, (None, None))
-        menue.add_command(label=t("menue.wert_kopieren" if spalte == "#1" else "menue.namen_kopieren"),
-                          state="normal" if wert else "disabled",
-                          command=lambda: self.zwischenablage(wert, t("fenster.kopiert", text=wert)))
-        menue.add_command(label=t("menue.markierte_kopieren"), accelerator=t("menue.strg_c"),
-                          command=self.auswahl_kopieren)
-        menue.add_separator()
-        menue.add_command(label=t("menue.alles_markieren"), accelerator=t("menue.strg_a"),
-                          command=self.alles_markieren)
-        menue.tk_popup(event.x_root, event.y_root)
+        menu = tk.Menu(self.win, tearoff=False, bg=BG_LIST, fg=FG, activebackground=HOVER, activeforeground=FG,
+                       disabledforeground=SUB, bd=0, font=FONT)
+        column, value = self.copyable.get(key, (None, None))
+        menu.add_command(label=t("menu.copy_value" if column == "#1" else "menu.copy_name"),
+                         state="normal" if value else "disabled",
+                         command=lambda: self.to_clipboard(value, t("window.copied", text=value)))
+        menu.add_command(label=t("menu.copy_selected"), accelerator=t("menu.ctrl_c"), command=self.copy_selection)
+        menu.add_separator()
+        menu.add_command(label=t("menu.select_all"), accelerator=t("menu.ctrl_a"), command=self.select_all)
+        menu.tk_popup(event.x_root, event.y_root)
 
-    def zwischenablage(self, text, meldung):
+    def to_clipboard(self, text, message):
         self.win.clipboard_clear()
         self.win.clipboard_append(text)
-        self.bestaetigen(meldung)
+        self.confirm(message)
 
-    def bestaetigen(self, meldung, farbe=AKZENT):
-        """Kurze Meldung in der Fußzeile, nach 2 s (bzw. 4 s bei Fehlern) wieder der Hinweis."""
-        if self.meldung_job:
-            self.win.after_cancel(self.meldung_job)
-        self.fuss.configure(text=("✓  " if farbe == AKZENT else "⚠  ") + meldung, foreground=farbe)
-        self.meldung_job = self.win.after(2000 if farbe == AKZENT else 4000, self.meldung_ende)
+    def confirm(self, message, color=ACCENT):
+        """Short message in the footer, after 2 s (or 4 s for errors) the hint again."""
+        if self.message_job:
+            self.win.after_cancel(self.message_job)
+        self.foot.configure(text=("✓  " if color == ACCENT else "⚠  ") + message, foreground=color)
+        self.message_job = self.win.after(2000 if color == ACCENT else 4000, self.message_end)
 
-    def knoepfe_bauen(self, tree, bereiche):
-        """Ein echter „Kopieren“-Button rechts in jeder Bereichszeile (bereiche: [(Zeilen-Schlüssel, Bereich-ID)])."""
-        for knopf in self.knoepfe.pop(tree, {}).values():
-            knopf.destroy()
-        self.knoepfe[tree] = {}
-        for key, bereich in bereiche:
-            knopf = ttk.Button(tree, text=f"⧉  {t('hw.kopieren')}", style="Knopf.TButton", cursor="hand2",
-                               command=lambda b=bereich: self.bereich_kopieren(b))
-            knopf.bind("<Enter>", lambda e, b=bereich: self.fusszeile(t(
-                "hw.kopieren.uebersicht" if self.uebersicht() else "hw.kopieren.details",
-                bereich=hardware_data.bereichsname(b))))
-            knopf.bind("<Leave>", lambda e: self.fusszeile(t(HINWEIS)))
-            self.knoepfe[tree][key] = knopf
-        self.win.after_idle(self.knoepfe_platzieren, tree)
+    def build_buttons(self, tree, categories):
+        """A real "Copy" button on the right of each category row (categories: [(row key, category ID)])."""
+        for button in self.buttons.pop(tree, {}).values():
+            button.destroy()
+        self.buttons[tree] = {}
+        for key, category in categories:
+            button = ttk.Button(tree, text=f"⧉  {t('hw.copy')}", style="Small.TButton", cursor="hand2",
+                                command=lambda c=category: self.copy_category(c))
+            button.bind("<Enter>", lambda e, c=category: self.footer(t(
+                "hw.copy.overview" if self.overview() else "hw.copy.details",
+                category=hardware_data.category_name(c))))
+            button.bind("<Leave>", lambda e: self.footer(t(HINT)))
+            self.buttons[tree][key] = button
+        self.win.after_idle(self.place_buttons, tree)
 
-    def knoepfe_platzieren(self, tree):
-        """Buttons auf die Höhe ihrer Zeile setzen – oder ausblenden, wenn die Zeile gerade nicht zu sehen ist."""
-        for key, knopf in self.knoepfe.get(tree, {}).items():
+    def place_buttons(self, tree):
+        """Put the buttons at the height of their row – or hide them if the row isn't visible right now."""
+        for key, button in self.buttons.get(tree, {}).items():
             box = tree.bbox(key) if tree.exists(key) else ""
             if box:
                 _, y, _, h = box
-                knopf.place(relx=1.0, x=-self.px(4), y=y + 1, height=h - 2, anchor="ne")
+                button.place(relx=1.0, x=-self.px(4), y=y + 1, height=h - 2, anchor="ne")
             else:
-                knopf.place_forget()
+                button.place_forget()
 
-    def uebersicht(self):
-        """True, solange im Tab Hardwaredaten der Unterreiter „Übersicht“ (nur Modellnamen) gewählt ist."""
-        return self.hw_ansicht.get() == "uebersicht"
+    def overview(self):
+        """True as long as the sub-tab "Overview" (only model names) is selected in the tab Hardware data."""
+        return self.hw_view.get() == "overview"
 
-    def hw_spalten(self, tree):
-        """Übersicht: nur Namen, die bekommen die ganze Breite (sonst werden lange CPU-Namen abgeschnitten).
-        Details: Feldname links, Wert daneben – Aufteilung wie in tabs_bauen (300 : 260)."""
-        breite = max(tree.winfo_width(), self.px(560))
-        if self.uebersicht():
-            tree.column("wert", width=0, stretch=False)
-            tree.column("#0", width=breite)
+    def hw_columns(self, tree):
+        """Overview: only names, they get the full width (otherwise long CPU names are cut off).
+        Details: field name on the left, value next to it – split like in build_tabs (300 : 260)."""
+        width = max(tree.winfo_width(), self.px(560))
+        if self.overview():
+            tree.column("value", width=0, stretch=False)
+            tree.column("#0", width=width)
         else:
-            tree.column("wert", width=breite * 260 // 560, stretch=True)
-            tree.column("#0", width=breite - breite * 260 // 560)
+            tree.column("value", width=width * 260 // 560, stretch=True)
+            tree.column("#0", width=width - width * 260 // 560)
 
-    def bereich_kopieren(self, bereich):
-        """„Kopieren“ in einer Bereichszeile: so, wie der Bereich gerade angezeigt wird (bereich: ID)."""
-        geraete = dict(self.hwdaten or []).get(bereich)
-        if not geraete:
+    def copy_category(self, category):
+        """"Copy" in a category row: the way the category is shown right now (category: ID)."""
+        devices = dict(self.hw_data or []).get(category)
+        if not devices:
             return
-        name = hardware_data.bereichsname(bereich)
-        if self.uebersicht():
-            self.zwischenablage(hardware_data.modellnamen_als_text([(bereich, geraete)]),
-                                t("hw.kopiert.uebersicht", bereich=name))
+        name = hardware_data.category_name(category)
+        if self.overview():
+            self.to_clipboard(hardware_data.model_names_as_text([(category, devices)]),
+                              t("hw.copied.overview", category=name))
         else:
-            self.zwischenablage(hardware_data.als_text(bereich, geraete), t("hw.kopiert.details", bereich=name))
+            self.to_clipboard(hardware_data.as_text(category, devices, self.private()),
+                              t("hw.copied.details", category=name))
 
-    def alles_kopieren(self):
-        """„Alles kopieren“ oben im Tab: alle Bereiche so, wie der gewählte Unterreiter sie zeigt."""
-        if not self.hwdaten:
-            self.bestaetigen(t("hw.noch_nicht_gelesen"), farbe=SUB)
-        elif self.uebersicht():
-            self.zwischenablage(hardware_data.modellnamen_als_text(self.hwdaten), t("hw.alle_modellnamen_kopiert"))
+    def copy_all(self):
+        """"Copy all" at the top of the tab: all categories the way the selected sub-tab shows them."""
+        if not self.hw_data:
+            self.confirm(t("hw.not_read_yet"), color=SUB)
+        elif self.overview():
+            self.to_clipboard(hardware_data.model_names_as_text(self.hw_data), t("hw.all_models_copied"))
         else:
-            self.zwischenablage(hardware_data.alles_als_text(self.hwdaten), t("hw.alle_daten_kopiert"))
+            self.to_clipboard(hardware_data.all_as_text(self.hw_data, self.private()), t("hw.all_data_copied"))
 
-    def meldung_ende(self):
-        self.meldung_job = None
-        if self.fehler:
-            self.fuss.configure(text=self.fehler, foreground=hex_color(AMPEL["rot"]))
+    def message_end(self):
+        self.message_job = None
+        if self.error:
+            self.foot.configure(text=self.error, foreground=hex_color(TRAFFIC_LIGHT["red"]))
         else:
-            self.fuss.configure(text=t(HINWEIS), foreground=SUB)
+            self.foot.configure(text=t(HINT), foreground=SUB)
 
-    # --- Hardwaredaten ---
-    def hwdaten_laden(self):
-        """Liest die Hardwaredaten im Hintergrund – beim ersten Anzeigen und nach jedem erneuten Öffnen des Fensters.
-        Bis dahin bleiben die alten Daten stehen."""
-        if self.hwdaten_aktuell or self.hwdaten_thread:
+    # --- Hardware data ---
+    def load_hw_data(self):
+        """Reads the hardware data in the background – when first shown and after every reopening of the window.
+        Until then the old data stays."""
+        if self.hw_data_current or self.hw_data_thread:
             return
 
-        def lesen():
+        def read():
             try:
-                self.hwdaten_neu = hardware_data.lesen()
+                self.hw_data_new = hardware_data.read_all()
             except Exception:
-                logging.exception("Hardwaredaten konnten nicht gelesen werden")
-                self.hwdaten_neu = self.hwdaten or []
+                logging.exception("Hardware data could not be read")
+                self.hw_data_new = self.hw_data or []
 
-        self.hwdaten_thread = threading.Thread(target=lesen, daemon=True)
-        self.hwdaten_thread.start()
-        self.win.after(100, self.hwdaten_warten)
+        self.hw_data_thread = threading.Thread(target=read, daemon=True)
+        self.hw_data_thread.start()
+        self.win.after(100, self.hw_data_wait)
 
-    def hwdaten_warten(self):
-        if self.hwdaten_thread.is_alive():
-            self.win.after(100, self.hwdaten_warten)
+    def hw_data_wait(self):
+        if self.hw_data_thread.is_alive():
+            self.win.after(100, self.hw_data_wait)
             return
-        self.hwdaten_thread = None
-        self.hwdaten, self.hwdaten_aktuell = self.hwdaten_neu, True
-        self.aktualisieren()
+        self.hw_data_thread = None
+        self.hw_data, self.hw_data_current = self.hw_data_new, True
+        self.update()

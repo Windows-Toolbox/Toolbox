@@ -714,7 +714,7 @@ Namen deines PCs.
 | CCD | „Core Complex Die“ – der Chip mit den Kernen |
 | SVI2 TFN | Spannungs-/Stromwerte, die der Spannungsregler an die CPU meldet |
 
-Die Erklärtexte dazu stehen in `detail_window_content.py` (`ERKLAERUNGEN`).
+Die Erklärtexte dazu stehen in `detail_window_content.py` (`EXPLANATIONS`).
 
 #### NVML (Nvidia Management Library)
 
@@ -1265,7 +1265,7 @@ Beispiel für eine Seite. Sobald ein Tab echte Programme hat, kannst du den Plat
 Läuft IM Toolbox-Prozess (ohne Adminrechte). Wird von `find_tools()` geladen, weil `program.json` sie unter
 `"seite"` nennt.
 
-**Konstanten:** `FOLDER`, `SCRIPT` (`hardware_monitor.py`), `AUSWEIS` (die `program.json`), daraus `STARTER`
+**Konstanten:** `FOLDER`, `SCRIPT` (`hardware_monitor.py`), `MANIFEST` (die `program.json`), daraus `STARTER`
 (`programs\hardware_monitor\HardwareMonitor.exe`) und `MONITOR_EXE` (die Kopie in `runtime\`), `SETTINGS_FILE`
 (`data\hardware_monitor.json`), `LOG_FILE` (`data\logs\hardware_monitor.log`), `IPC_PORT = 47815`,
 `DEFAULT_TASK = "HardwareMonitor"`, die Auswahllisten (`ICON_RATES`, `POPUP_RATES`, `ORDERS`, `CPU_CHOICES`,
@@ -1303,12 +1303,12 @@ stoppen. `show_status(antwort)`: „● Läuft · CPU 52 °C · GPU 41 °C“ od
 
 | Funktion | Was sie tut |
 |---|---|
-| `laeuft(app)` | antwortet der Monitor auf „status“? |
-| `beenden(app)` | „quit“ schicken, dann aufs Prozessende warten (pid aus „status“, `winutil.wait_for_exit`) – erst dann sind `.exe` und Einzelinstanz-Sperre frei. Rückfall: warten, bis „status“ nicht mehr antwortet. |
-| `starten(app)` | Gibt es die Aufgabe, ist sie aktiv UND zeigt auf diesen Starter (`task_points_here`)? → `run_task` (keine UAC). Sonst → `run_elevated(startbefehl())` (UAC-Abfrage). |
+| `is_running(app)` | antwortet der Monitor auf „status“? |
+| `stop_program(app)` | „quit“ schicken, dann aufs Prozessende warten (pid aus „status“, `winutil.wait_for_exit`) – erst dann sind `.exe` und Einzelinstanz-Sperre frei. Rückfall: warten, bis „status“ nicht mehr antwortet. |
+| `start_program(app)` | Gibt es die Aufgabe, ist sie aktiv UND zeigt auf diesen Starter (`task_points_here`)? → `run_task` (keine UAC). Sonst → `run_elevated(startbefehl())` (UAC-Abfrage). |
 
-Knöpfe der Seite: Starten = `starten()` im Hintergrund, danach `poll_status_soon()` (nach 0,4 / 1,2 / 2,5 s
-nachsehen). Beenden = `ipc("quit")`. Neu starten = `beenden()`, dann Starten.
+Knöpfe der Seite: Starten = `start_program()` im Hintergrund, danach `poll_status_soon()` (nach 0,4 / 1,2 / 2,5 s
+nachsehen). Beenden = `ipc("quit")`. Neu starten = `stop_program()`, dann Starten.
 
 **Autostart:** `refresh_task` → `task_info` im Hintergrund → `show_task`: Schalter und Text je nachdem, ob die
 Aufgabe fehlt, aktiv/deaktiviert ist oder auf einen anderen Ort zeigt (z. B. nach dem Verschieben des Ordners).
@@ -1318,7 +1318,7 @@ Ganz unten:
 
 ```python
 SEITE = HardwareMonitorPage
-PROGRAMM = Programm(laeuft, beenden, starten)
+PROGRAMM = Programm(is_running, stop_program, start_program)
 ```
 
 ← diese Zeilen holt sich die Toolbox; Name, Tab und Beschreibung kommen aus `program.json`.
@@ -1338,7 +1338,7 @@ Was beim Start passiert (Reihenfolge im Code):
    |---|---|
    | `LHM_DIR` | wo `LibreHardwareMonitorLib.dll` liegt (`lhm\` neben dem Skript, sonst `runtime\lhm`, wo es kurzzeitig lag, sonst `C:\Tools\lhm`) |
    | `ICON_RATES` / `POPUP_RATES` | 1, 2, 5, 10 s / 0,5, 1, 2, 5 s |
-   | `DEFAULT_SETTINGS` | `icon_interval`, `popup_interval`, `icon_order`, `cpu_sensor`, `gpu_sensor`, `cpu_warn_temp`/`cpu_hot_temp`, `gpu_warn_temp`/`gpu_hot_temp`, `window`, `effizienzmodus` (`"auto"`/`"an"`/`"aus"`) |
+   | `DEFAULT_SETTINGS` | `icon_interval`, `popup_interval`, `icon_order`, `cpu_sensor`, `gpu_sensor`, `cpu_warn_temp`/`cpu_hot_temp`, `gpu_warn_temp`/`gpu_hot_temp`, `window`, `efficiency_mode` (`"auto"`/`"an"`/`"aus"`) |
    | `SETTINGS_FILE` | `data\hardware_monitor.json` (über `daten.einstellungen`) |
    | `CPU_SENSORS` | `("Core (Tctl/Tdie)", "CPU Package", "Core Average")` – Reihenfolge für „Automatisch“ |
    | `GPU_SENSORS` | `("GPU Core", "GPU Hot Spot")` |
@@ -1351,9 +1351,9 @@ Was beim Start passiert (Reihenfolge im Code):
    `Open()`.
 5. `nvidia = NvidiaTemp()` – versucht `nvml.dll` zu laden und die erste Nvidia-Karte zu öffnen. Ohne Nvidia:
    `available = False`, alles läuft über LHM.
-6. Übersetzungstabellen: `HW_TYPES`/`SENSOR_TYPES` (.NET-Enum → Text), `HW_GERAET` (LHM-Typ → „cpu“, „gpu“, „ram“,
+6. Übersetzungstabellen: `HW_TYPES`/`SENSOR_TYPES` (.NET-Enum → Text), `HW_DEVICE` (LHM-Typ → „cpu“, „gpu“, „ram“,
    „mainboard“, „laufwerk“, „netzwerk“, „akku“; alles andere → „weitere“). Diese Gerätenamen benutzt
-   `detail_window_content.py` in `Gruppe("...")`.
+   `detail_window_content.py` in `Group("...")`.
 7. `SETTINGS = load_settings()` – jeder Wert wird geprüft (Raten müssen in den erlaubten Listen sein,
    20 ≤ gelb < rot ≤ 120, `window` muss wie „480x640+1420+380“ aussehen …). Ungültiges → Standardwert. Schlüssel,
    die nur die Toolbox kennt (`task_name`), bleiben unverändert erhalten – sonst löschte `save_settings()` sie beim
@@ -1365,9 +1365,9 @@ Was beim Start passiert (Reihenfolge im Code):
 
 #### Messen – die zwei Wege
 
-**`collect(geraete)` → „Snapshot“ für das Detailfenster**
+**`collect(devices)` → „Snapshot“ für das Detailfenster**
 
-- `geraete` = Menge wie `{"gpu", "laufwerk"}` (nur diese lesen) oder `None` (alles). CPU wird immer gelesen.
+- `devices` = Menge wie `{"gpu", "drive"}` (nur diese lesen) oder `None` (alles). CPU wird immer gelesen.
 - Für jedes Top-Gerät in `pc.Hardware`: nicht gebraucht → überspringen (wird gar nicht erst aktualisiert!).
   Sonst `walk()` (`Update()` + Unter-Geräte) und alle Sensoren mit Wert in ein dict packen.
 - Ungenutzte Netzwerkadapter (alle Werte 0) fallen weg.
@@ -1378,11 +1378,11 @@ Was beim Start passiert (Reihenfolge im Code):
   ```
 - Die GPU-Temperatur kommt aus NVML, wenn die GPU sonst gar nicht gebraucht wird.
 
-**`icon_werte()` → nur die zwei Zahlen für die Icons** (der sparsame Weg, wenn das Fenster zu ist)
+**`icon_values()` → nur die zwei Zahlen für die Icons** (der sparsame Weg, wenn das Fenster zu ist)
 
 - Je Gerät ein `Update()` und genau EIN Sensorwert. Die .NET-Sensorobjekte werden beim ersten Mal gesucht
-  (`icon_sensor_suchen`) und in `ICON_SENSOREN` gemerkt; danach wird direkt gelesen. Liefert der Sensor keinen Wert
-  mehr, wird beim nächsten Mal neu gesucht. Bei `"reload"` wird `ICON_SENSOREN` geleert (anderer Sensor gewählt?).
+  (`find_icon_sensor`) und in `ICON_SENSORS` gemerkt; danach wird direkt gelesen. Liefert der Sensor keinen Wert
+  mehr, wird beim nächsten Mal neu gesucht. Bei `"reload"` wird `ICON_SENSORS` geleert (anderer Sensor gewählt?).
 - `collect()` würde dafür jeden der ~50 CPU-Sensoren einzeln über pythonnet abfragen – das ist der große
   Unterschied.
 
@@ -1415,10 +1415,10 @@ kommt aus der Dateibeschreibung von `runtime\HardwareMonitor.exe`.
 
 - `tk.Tk()` als unsichtbares Hauptfenster (`withdraw`). Das Detailfenster ist ein Toplevel davon und wird erst beim
   ersten Klick gebaut.
-- `fenster_bedarf`: `False` = Fenster zu/minimiert, sonst die Menge der gebrauchten Geräte (`None` = alle).
+- `window_wants`: `False` = Fenster zu/minimiert, sonst die Menge der gebrauchten Geräte (`None` = alle).
 - Events `stop`/`wake`, `lock`, `latest` (letzter Snapshot), `shown` (was gerade in den Icons steht), `ui_queue`,
   `current` (aktuelle Icon-Werte für die Statusabfrage).
-- `kinds` = die Icons, die es wirklich gibt: `icon_order` ohne `"gpu"`, wenn `gpu_hat_temperatur()` nichts findet
+- `kinds` = die Icons, die es wirklich gibt: `icon_order` ohne `"gpu"`, wenn `gpu_has_temperature()` nichts findet
   (kein NVML und kein Temperatursensor an einer GPU – z. B. Intel-Onboard-Grafik). `kinds` bekommen auch
   `measure_icons`, `measure` (`collect(…, icons)`), das Detailfenster (Kopfzeile) und die Statusabfrage (`"icons"`).
 - Ein `TrayIcon` pro Eintrag in `kinds`, alle mit demselben Menü.
@@ -1430,10 +1430,10 @@ pystray sie bei jedem Öffnen neu auswertet. pystray prüft die Parameterzahl de
 Fabrikfunktionen `action(s)`/`checked(s)`. `set_rate`: speichern, Menüs auffrischen, Mess-Thread wecken.
 
 **`run()`**: Icons NACHEINANDER anmelden (`run_detached` + setup-Callback, auf ready warten) → feste Reihenfolge in
-der Taskleiste. `effizienz_anwenden()`. Threads starten. `poll_queue` per `after()`. `root.mainloop()`.
+der Taskleiste. `apply_efficiency_mode()`. Threads starten. `poll_queue` per `after()`. `root.mainloop()`.
 Nach `quit()`: auf den Mess-Thread warten (max. 5 s), Fenster zerstören.
 
-**`effizienz_anwenden()`**: Setzt den Effizienzmodus laut Einstellung `"effizienzmodus"`: `"auto"` = an, solange
+**`apply_efficiency_mode()`**: Setzt den Effizienzmodus laut Einstellung `"efficiency_mode"`: `"auto"` = an, solange
 das Fenster zu ist; `"an"` = immer; `"aus"` = nie. Aufgerufen beim Start, beim Wechsel Fenster offen↔zu und nach
 `"reload"` (Toolbox geändert).
 
@@ -1441,7 +1441,7 @@ das Fenster zu ist; `"an"` = immer; `"aus"` = nie. Aufgerufen beim Start, beim W
 
 1. Icons sofort füllen (`measure_icons`).
 2. Übrige Hardware einschalten (`LATER_HARDWARE`, RAM dauert ~8 s) und einmal komplett messen („anwärmen“).
-   Aus dieser Messung: `vorhanden` = welche Geräte dieser PC hat (z. B. kein „mainboard“ am Laptop) – damit
+   Aus dieser Messung: `present` = welche Geräte dieser PC hat (z. B. kein „mainboard“ am Laptop) – damit
    blendet das Fenster Tabs ohne passende Geräte aus. `hardware_ready = True`.
 3. Schleife bis `stop`:
    ```
@@ -1455,8 +1455,8 @@ das Fenster zu ist; `"an"` = immer; `"aus"` = nie. Aufgerufen beim Start, beim W
 
 `update_icons` zeichnet ein Icon nur neu, wenn sich die angezeigte ganze Zahl geändert hat.
 
-**`fenster_braucht(geraete)`** – vom Detailfenster aufgerufen: Merkt sich, was gebraucht wird; ruft beim Wechsel
-offen↔zu `effizienz_anwenden()` auf; verwirft beim Schließen den alten Snapshot; weckt den Mess-Thread.
+**`window_needs(devices)`** – vom Detailfenster aufgerufen: Merkt sich, was gebraucht wird; ruft beim Wechsel
+offen↔zu `apply_efficiency_mode()` auf; verwirft beim Schließen den alten Snapshot; weckt den Mess-Thread.
 
 **`ipc_server()` – der IPC-Thread:** Bindet 127.0.0.1:47815 (ist der Port belegt, z. B. direkt nach einem Neustart:
 alle 2 s neu versuchen, einmal loggen). Dann: `accept` → bis zu 64 Bytes lesen → `handle_command` → JSON-Zeile
@@ -1487,55 +1487,55 @@ offenem Fenster alle 100 ms, sonst alle 250 ms (spart Aufwachen im Leerlauf).
 
 | Baustein | Bedeutung |
 |---|---|
-| `Tab(titel, *gruppen)` | ein Reiter |
-| `Gruppe(geraet, *werte, name="*", titel=None)` | Werte EINES Gerätetyps. Gibt es mehrere passende Geräte (drei Laufwerke), erscheint die Gruppe für jedes einmal. `name` filtert Geräte nach Namen. |
-| `Wert(sensor, typ=None, text=None, ohne=None)` | eine Zeile. `*` als Platzhalter. `typ` nur nötig, wenn derselbe Name mehrfach vorkommt („GPU Core“ ist Temperatur, Auslastung UND Takt). `typ` darf deutsch („Temperatur“) oder englisch („Temperature“) sein. `ohne` schließt Namen aus, die trotz Platzhalter nicht dazugehören (`"CPU Core #*"`, `ohne="*Distance*"`). |
-| `Abschnitt(titel, *werte, eine_zeile=False)` | einklappbarer Unterpunkt in einer Gruppe (z. B. „Lüfter“). `eine_zeile=True` zeigt gleichnamige Werte in einer Zeile: den ersten als Wert, den zweiten als Balken mit % (Fan #1: Drehzahl und Ansteuerung); „Control“ im Namen zählt dabei nicht mit. 0 RPM bei einem angesteuerten Lüfter erscheint grau als „steht“. |
-| `AlleSensoren()` | alles, was LHM findet (zum Nachschlagen) |
-| `Hardwaredaten()` | der Tab mit den festen Daten (`hardware_data.py`) |
+| `Tab(title, *gruppen)` | ein Reiter |
+| `Group(device, *werte, name="*", title=None)` | Werte EINES Gerätetyps. Gibt es mehrere passende Geräte (drei Laufwerke), erscheint die Gruppe für jedes einmal. `name` filtert Geräte nach Namen. |
+| `Value(sensor, type=None, text=None, exclude=None)` | eine Zeile. `*` als Platzhalter. `type` nur nötig, wenn derselbe Name mehrfach vorkommt („GPU Core“ ist Temperatur, Auslastung UND Takt). `type` ist der Sensortyp, wie `--list` ihn zeigt („Temperature“, „Load“, „Clock“, „Fan“, „Control“ …). `exclude` schließt Namen aus, die trotz Platzhalter nicht dazugehören (`"CPU Core #*"`, `exclude="*Distance*"`). |
+| `Section(title, *werte, one_row=False)` | einklappbarer Unterpunkt in einer Gruppe (z. B. „Lüfter“). `one_row=True` zeigt gleichnamige Werte in einer Zeile: den ersten als Wert, den zweiten als Balken mit % (Fan #1: Drehzahl und Ansteuerung); „Control“ im Namen zählt dabei nicht mit. 0 RPM bei einem angesteuerten Lüfter erscheint grau als „steht“. |
+| `AllSensors()` | alles, was LHM findet (zum Nachschlagen) |
+| `HardwareData()` | der Tab mit den festen Daten (`hardware_data.py`) |
 
 #### Anzeige-Helfer
 
-`TYPE_LABELS` (englisch → deutsch), `UNITS` (Nachkommastellen, Einheit), `BAR_TYPES` (bekommen einen Text-Balken),
-`fmt_value` (Zahl schön formatieren, deutsches Komma, B/s→KB/s→MB/s, GB→TB …), `AMPEL` + `temp_stufe`/`temp_color`
-(grün/gelb/rot nach `cpu_…`/`gpu_warn_temp` und `…_hot_temp` – GPU-Sensoren nach den GPU-Grenzen, alles andere nach den CPU-Grenzen; dieselben Farben auch in den Tray-Icons), `balken` (██████░░░░),
-`erklaere` (passenden Erklärtext aus `ERKLAERUNGEN` suchen). `ICON_DATEI` = `toolbox\toolbox.ico` (Fenstersymbol).
+`SENSOR_TYPES` (alle Sensortypen in der Reihenfolge für AllSensors), `UNITS` (Nachkommastellen, Einheit), `BAR_TYPES` (bekommen einen Text-Balken),
+`fmt_value` (Zahl schön formatieren, Komma oder Punkt je nach Sprache über `num()`, B/s→KB/s→MB/s, GB→TB …), `TRAFFIC_LIGHT` + `temp_level`/`temp_color`
+(grün/gelb/rot nach `cpu_…`/`gpu_warn_temp` und `…_hot_temp` – GPU-Sensoren nach den GPU-Grenzen, alles andere nach den CPU-Grenzen; dieselben Farben auch in den Tray-Icons), `bar` (██████░░░░),
+`explain` (passenden Erklärtext aus `EXPLANATIONS` suchen). `ICON_FILE` = `toolbox\toolbox.ico` (Fenstersymbol).
 
 #### Vom Inhalt zur Liste
 
 | Funktion | Was sie tut |
 |---|---|
-| `benoetigte_geraete(tab)` | welche Geräte der Mess-Thread für diesen Tab lesen muss: Hardwaredaten → `set()` (nichts), AlleSensoren → `None` (alles), sonst `{g.geraet …}` |
-| `zeilen(tab, snap)` | macht aus Tab + Snapshot eine flache Liste (Schlüssel, Eltern-Schlüssel, Text, Sensor). Überschriften haben keinen Sensor. Die Schlüssel bleiben stabil, solange sich der Aufbau nicht ändert. |
-| `hwdaten_zeilen(daten)` | dasselbe für die Hardwaredaten (Bereich → Gerät → Feld) |
+| `needed_devices(tab)` | welche Geräte der Mess-Thread für diesen Tab lesen muss: Hardwaredaten → `set()` (nichts), AlleSensoren → `None` (alles), sonst `{g.device …}` |
+| `rows(tab, snap)` | macht aus Tab + Snapshot eine flache Liste (Schlüssel, Eltern-Schlüssel, Text, Sensor). Überschriften haben keinen Sensor. Die Schlüssel bleiben stabil, solange sich der Aufbau nicht ändert. |
+| `hardware_data_rows(daten)` | dasselbe für die Hardwaredaten (Bereich → Gerät → Feld) |
 
-#### Klasse `Detailfenster`
+#### Klasse `DetailWindow`
 
-- `__init__`: Toplevel (Titel = Pfad von `hardware_monitor.py`, `PROGRAMM_DATEI` – wie bei der Toolbox),
+- `__init__`: Toplevel (Titel = Pfad von `hardware_monitor.py`, `PROGRAM_FILE` – wie bei der Toolbox),
   Skalierungsfaktor (1,0 bei 100 %, 1,5 bei 150 %; `px()` rechnet damit um), ttk-Styles (`stil()`: Farben `BG`,
   `BG_LIST`, `FG`, `SUB`, `HOVER`, `AKZENT` – eine eigene Kopie der dunklen Toolbox-Palette), Kopfzeile mit den zwei
   großen Werten und „● Live“ / „Daten werden geladen …“, Notebook (Tabs), Fußzeile (Erklärungen).
-  ✕ versteckt nur. `<Map>`/`<Unmap>` (gezeigt/minimiert) → `sichtbarkeit()` → `melden()` → `app.fenster_braucht(...)`.
-- `inhalt_laden()`: Liest `detail_window_content.py` – aber nur, wenn sich ihre Änderungszeit (mtime) geändert hat
+  ✕ versteckt nur. `<Map>`/`<Unmap>` (gezeigt/minimiert) → `visibility_changed()` → `report()` → `app.window_needs(...)`.
+- `load_content()`: Liest `detail_window_content.py` – aber nur, wenn sich ihre Änderungszeit (mtime) geändert hat
   (`importlib.reload`). Hat die Datei einen Fehler, läuft das Fenster trotzdem (Rückfall: Tab „Alles“) und die
   Fußzeile zeigt den Fehler rot. → Du kannst die Datei bei laufendem Monitor bearbeiten; Fenster zu/auf genügt.
-- `tabs_bauen(tabs)`: Pro Tab ein Frame mit Treeview + Scrollbar; im Hardwaredaten-Tab zusätzlich die Leiste mit
-  den Unterreitern „Übersicht“ / „Details“ (Radiobuttons auf `self.hw_ansicht`, `uebersicht()` fragt sie ab) und
-  „Alles kopieren“, das wie die Bereichs-Knöpfe kopiert, was die gewählte Ansicht zeigt. `hw_spalten()` gibt in der
+- `build_tabs(tabs)`: Pro Tab ein Frame mit Treeview + Scrollbar; im Hardwaredaten-Tab zusätzlich die Leiste mit
+  den Unterreitern „Übersicht“ / „Details“ (Radiobuttons auf `self.hw_view`, `overview()` fragt sie ab) und
+  „Alles kopieren“, das wie die Bereichs-Knöpfe kopiert, was die gewählte Ansicht zeigt. `hw_columns()` gibt in der
   Übersicht der Namensspalte die ganze Breite. Tags färben Zeilen (bereich, gruppe, typ, hinweis, Ampelfarben).
-- `zeigen()`/`verstecken()`/`umschalten()`; `platzieren()`: gespeicherte Position, wenn sie noch auf einem
+- `show()`/`hide()`/`toggle()`; `place()`: gespeicherte Position, wenn sie noch auf einem
   angeschlossenen Bildschirm liegt – sonst unten rechts auf dem Bildschirm, auf dem geklickt wurde, über der
-  Taskleiste. `speichern()`: Geometrie → `app.fenster_geometrie` → `data\hardware_monitor.json` (`"window"`).
-- `tabs_ausblenden()`: Sobald `app.vorhanden` bekannt ist (nach dem Nachladen der Hardware), werden Tabs versteckt
+  Taskleiste. `save_geometry()`: Geometrie → `app.window_geometry` → `data\hardware_monitor.json` (`"window"`).
+- `hide_missing_tabs()`: Sobald `app.present` bekannt ist (nach dem Nachladen der Hardware), werden Tabs versteckt
   (`notebook.hide`), deren Geräte der PC nicht hat – z. B. „Mainboard“ am Laptop, „Akku“ am Desktop. Läuft einmal
   pro Stand (`ausgeblendet_fuer`); ist gerade ein versteckter Tab gewählt, springt ttk von selbst zum nächsten.
   `notebook.index("current")` zählt versteckte Tabs mit – die Zuordnung zu `self.tabs` bleibt also gleich.
 
-**`aktualisieren()`** – wird bei jeder neuen Messung (`"data"`) und bei Tabwechsel aufgerufen:
+**`update()`** – wird bei jeder neuen Messung (`"data"`) und bei Tabwechsel aufgerufen:
 
 - Tabs ausblenden (siehe oben), Kopfwerte setzen.
 - Passt der Snapshot zum aktiven Tab? (Sind alle gebrauchten Geräte gemessen? `gebraucht <= gemessen`) Wenn nicht:
-  „Lade Sensordaten …“ – die passende Messung kommt gleich, weil `melden()` den Mess-Thread geweckt hat.
+  „Lade Sensordaten …“ – die passende Messung kommt gleich, weil `report()` den Mess-Thread geweckt hat.
 - „Signatur“-Trick: Die Liste wird nur dann komplett neu aufgebaut, wenn sich ihr Aufbau (Schlüssel/Texte)
   geändert hat. Sonst werden nur die Werte in den vorhandenen Zeilen ersetzt. Das verhindert Flackern und hält
   auf-/zugeklappte Zustände und die Scrollposition.
@@ -1543,14 +1543,14 @@ offenem Fenster alle 100 ms, sonst alle 250 ms (spart Aufwachen im Leerlauf).
 
 **Erklären/Kopieren**
 
-- `<Motion>` über einer Zeile → `erklaeren()` zeigt den Text in der Fußzeile (bei Hardwaredaten den vollen Wert).
+- `<Motion>` über einer Zeile → `describe()` zeigt den Text in der Fußzeile (bei Hardwaredaten den vollen Wert).
 - `<Button-1>` → `kopieren()`: Gerätename bzw. Hardwaredaten-Wert in die Zwischenablage (nicht beim Klick aufs
   Auf-/Zuklapp-Dreieck). Bestätigung „✓ … kopiert“ für 2 s.
 - „⧉ Kopieren“-Buttons pro Bereich: echte `ttk.Button`s, mit `place()` ÜBER die Treeview gelegt, auf Höhe ihrer
   Zeile (`tree.bbox(key)`). Weil die Treeview selbst keine Widgets in Zeilen kann, werden sie bei Scrollen,
-  Auf-/Zuklappen und Größenänderung neu platziert (`knoepfe_platzieren`) bzw. ausgeblendet.
+  Auf-/Zuklappen und Größenänderung neu platziert (`place_buttons`) bzw. ausgeblendet.
 
-**Hardwaredaten laden:** `hwdaten_laden()` startet einen Thread mit `hardwaredaten.lesen()`; `hwdaten_warten()`
+**Hardwaredaten laden:** `load_hw_data()` startet einen Thread mit `hardware_data.read_all()`; `hw_data_wait()`
 schaut per `after(100)` nach, ob er fertig ist, und zeigt dann an. Gelesen wird beim ersten Anzeigen und nach jedem
 erneuten Öffnen des Fensters (z. B. für neu eingesteckte USB-Geräte).
 
@@ -1559,10 +1559,11 @@ erneuten Öffnen des Fensters (z. B. für neu eingesteckte USB-Geräte).
 Reine „Beschreibungs-Datei“ – hier passt du das Fenster an, ohne GUI-Code zu verstehen.
 
 ```python
-FENSTER = [ Tab("Temperaturen", Gruppe("cpu", Wert(...), ...), Gruppe("gpu", ...)),
-            Tab("CPU", ...), Tab("GPU", ...), Tab("RAM", ...), Tab("Mainboard", ...),
-            Tab("Laufwerke", ...), Tab("Netzwerk", ...), Tab("Akku", ...), Tab("Hardwaredaten", Hardwaredaten()),
-            # Tab("Alles", AlleSensoren()),   ← zum Nachschlagen wieder einkommentieren
+TABS = [ Tab("tab.temperatures", Group("cpu", Value(...), ...), Group("gpu", ...)),
+         Tab("tab.cpu", ...), Tab("tab.gpu", ...), Tab("tab.ram", ...), Tab("tab.motherboard", ...),
+         Tab("tab.drives", ...), Tab("tab.network", ...), Tab("tab.battery", ...),
+         Tab("tab.hardware_data", HardwareData()),
+         # Tab("tab.all", AllSensors()),   ← zum Nachschlagen wieder einkommentieren
           ]
 ```
 
@@ -1572,10 +1573,10 @@ einfach nicht. Intel-Onboard-Grafik hat keine Temperatur, nur Leistung und Windo
 GPU-Tab eine eigene Gruppe mit `name="Intel*"` (bei Nvidia-Karten gibt es die D3D-Werte auch, die sollen dort aber
 nicht erscheinen).
 
-- `ERKLAERUNGEN = [ (Sensortyp, regulärer Ausdruck, Text), ... ]` – der erste passende Eintrag gewinnt. Das Muster
+- `EXPLANATIONS = [ (Sensortyp, regulärer Ausdruck, Text), ... ]` – der erste passende Eintrag gewinnt. Das Muster
   muss auf den GANZEN Namen passen (`re.fullmatch`). `{0}` im Text = erste Klammergruppe des Musters (z. B. die
   Kernnummer).
-- `TYP_ERKLAERUNGEN = { Sensortyp: Text }` – Rückfall, wenn oben nichts passt.
+- `TYPE_EXPLANATIONS = { Sensortyp: Text }` – Rückfall, wenn oben nichts passt.
 
 ### 4.11 `programs\hardware_monitor\hardware_data.py` – Hersteller, IDs, Seriennummern
 
@@ -1587,15 +1588,15 @@ runtime\python.exe programs\hardware_monitor\hardware_data.py
 
 | Teil | Bedeutung |
 |---|---|
-| `abfrage(wql, scope)` | führt eine WQL-Abfrage aus → Liste von dicts (alle Werte als Text). Fehler → leer + Log. |
-| Helfer | `wert()` (Platzhalter wie „To Be Filled By O.E.M.“ → `None`), `mit_namen()` („10DE“ → „10DE (Nvidia)“), `datum()` (WMI-Datum → TT.MM.JJJJ), `pci_felder()`/`usb_ids()`/`ids_felder()` (IDs aus Kennungen per Regex), `hardware_id()` (Kennung ohne den Steckplatz-Teil) |
-| Tabellen | `PCI_HERSTELLER`, `USB_HERSTELLER` (Auszüge – bei Bedarf ergänzen), `RAM_TEILENUMMER` (Hersteller aus dem Anfang der Teilenummer raten, weil Windows oft „Unknown“ meldet), `RAM_TYPEN`, `RAM_BAUFORMEN`, `NETZ_ARTEN`, `BUS_TYPEN`, `MEDIEN_TYPEN` |
-| `gpu_arten()` | fragt per DXCore ab, welche GPU integriert / extern / dediziert ist (siehe Begriff DXCore); `com_methode()` ruft eine COM-Methode über ihre Nummer auf |
-| Bereiche | `prozessoren`, `grafikkarten`, `mainboard` (+ BIOS), `arbeitsspeicher`, `laufwerke`, `netzwerk`, `audio`, `usb_geraete`. Jede Funktion liefert `[(Gerätename, [(Feld, Wert), …]), …]`. Virtuelle Geräte werden aussortiert. `grafikkarten` ordnet die Art aus `gpu_arten()` über Hersteller-/Produkt-ID zu, `netzwerk` die Art aus MSFT_NetAdapter über die Gerätekennung. `arbeitsspeicher` fasst verlöteten LPDDR-Speicher zu einem Eintrag zusammen – Windows meldet ihn je Speicherkanal, nicht je Riegel. `audio` nimmt PCI-, HDAUDIO- und `INTELAUDIO\FUNC_`-Geräte (Codec hinter Intel Smart Sound bei Laptops). `usb_geraete` fasst Einträge mit gleicher VID/PID zusammen (ein Gerät meldet sich oft mehrfach an). |
-| `BEREICHE` | Liste (Anzeigename, Funktion) – Reihenfolge im Tab |
-| `lesen()` | ruft alle Bereiche auf; ein kaputter Bereich verhindert die anderen nicht |
-| `als_text` / `alles_als_text` / `modellnamen_als_text` | Textform für die Kopieren-Buttons |
-| `ERKLAERUNGEN` | Feldname → Erklärung für die Fußzeile |
+| `query(wql, scope)` | führt eine WQL-Abfrage aus → Liste von dicts (alle Werte als Text). Fehler → leer + Log. |
+| Helfer | `clean()` (Platzhalter wie „To Be Filled By O.E.M.“ → `None`), `with_name()` („10DE“ → „10DE (Nvidia)“), `wmi_date()` (WMI-Datum → TT.MM.JJJJ bzw. JJJJ-MM-TT je nach Sprache), `pci_fields()`/`usb_ids()`/`id_fields()` (IDs aus Kennungen per Regex), `hardware_id()` (Kennung ohne den Steckplatz-Teil) |
+| Tabellen | `PCI_VENDORS`, `USB_VENDORS` (Auszüge – bei Bedarf ergänzen), `RAM_PART_NUMBERS` (Hersteller aus dem Anfang der Teilenummer raten, weil Windows oft „Unknown“ meldet), `RAM_TYPES`, `RAM_FORM_FACTORS`, `NET_KINDS`, `BUS_TYPES`, `MEDIA_TYPES` |
+| `gpu_kinds()` | fragt per DXCore ab, welche GPU integriert / extern / dediziert ist (siehe Begriff DXCore); `com_method()` ruft eine COM-Methode über ihre Nummer auf |
+| Bereiche | `processors`, `graphics_cards`, `motherboards` (+ BIOS), `memory_modules`, `drives`, `network_adapters`, `audio_devices`, `usb_devices`. Jede Funktion liefert `[(Gerätename, [(Feld, Wert), …]), …]`. Virtuelle Geräte werden aussortiert. `graphics_cards` ordnet die Art aus `gpu_kinds()` über Hersteller-/Produkt-ID zu, `network_adapters` die Art aus MSFT_NetAdapter über die Gerätekennung. `memory_modules` fasst verlöteten LPDDR-Speicher zu einem Eintrag zusammen – Windows meldet ihn je Speicherkanal, nicht je Riegel. `audio_devices` nimmt PCI-, HDAUDIO- und `INTELAUDIO\FUNC_`-Geräte (Codec hinter Intel Smart Sound bei Laptops). `usb_devices` fasst Einträge mit gleicher VID/PID zusammen (ein Gerät meldet sich oft mehrfach an). |
+| `CATEGORIES` | Liste (Anzeigename, Funktion) – Reihenfolge im Tab |
+| `read_all()` | ruft alle Bereiche auf; ein kaputter Bereich verhindert die anderen nicht |
+| `as_text` / `all_as_text` / `model_names_as_text` | Textform für die Kopieren-Buttons |
+| `category_name` / `field_name` / `explanation` | Namen und Erklärungen der Bereiche und Felder aus `i18n.json` (`hw.category.…`, `hw.field.…`, `hw.explain.…`) |
 
 ### 4.12 `Entfernen.cmd`
 
@@ -1620,12 +1621,12 @@ nachladen (~8 s) → danach alle 2 s (`icon_interval`) nur die zwei Icon-Werte.
 
 **B) Du klickst aufs CPU-Icon**
 pystray-Thread → `ui_queue.put("toggle")` → GUI-Thread (`poll_queue`, spätestens nach 250 ms) → Detailfenster bauen
-(erstes Mal) → `inhalt_laden` → `zeigen` → `<Map>` → `melden()` → `fenster_braucht({"cpu","gpu"})` für Tab
+(erstes Mal) → `load_content` → `show` → `<Map>` → `report()` → `window_needs({"cpu","gpu"})` für Tab
 „Temperaturen“ → Effizienzmodus aus, `wake.set()` → Mess-Thread misst sofort `collect({"cpu","gpu"})` → `"data"` →
-`aktualisieren()` → „● Live“. Danach jede Sekunde (`popup_interval`).
+`update()` → „● Live“. Danach jede Sekunde (`popup_interval`).
 
 **C) Du wechselst auf den Tab „Laufwerke“**
-`<<NotebookTabChanged>>` → `melden()` → `fenster_braucht({"laufwerk"})` → `wake` → `collect({"laufwerk"})` (+ CPU,
+`<<NotebookTabChanged>>` → `report()` → `window_needs({"drive"})` → `wake` → `collect({"drive"})` (+ CPU,
 + GPU über NVML) → bis dahin „Lade Sensordaten …“.
 
 **D) Du schiebst in der Toolbox „CPU rot ab“ auf 85**
@@ -1727,8 +1728,8 @@ In `requirements.txt` MIT Version eintragen (am einfachsten: in `runtime\` insta
 ### 6.3 Einen Wert/Tab im Detailfenster ändern
 
 `runtime\python.exe programs\hardware_monitor\hardware_monitor.py --list` in einem ADMIN-Terminal → Namen ablesen
-→ in `detail_window_content.py` eine `Wert(...)`-Zeile ergänzen → speichern → Fenster zu und wieder auf.
-Optional eine Erklärung in `ERKLAERUNGEN` ergänzen. Neuer Tab = neuer `Tab(...)`-Eintrag in `FENSTER`.
+→ in `detail_window_content.py` eine `Value(...)`-Zeile ergänzen → speichern → Fenster zu und wieder auf.
+Optional eine Erklärung in `EXPLANATIONS` ergänzen. Neuer Tab = neuer `Tab(...)`-Eintrag in `TABS`.
 
 ### 6.4 Eine neue Einstellung für den Monitor
 
@@ -1785,7 +1786,7 @@ Muss an mehreren Stellen gleich sein:
 | Toolbox-Port 47816 | `GUI_PORT` in `toolbox.py`, `$GuiPort` in `setup.ps1` |
 | Aufgabenname | `DEFAULT_TASK` in `hardware_monitor_gui.py`, `$Aufgabe` in `setup.ps1` |
 | Standard-Einstellungen | `DEFAULT_SETTINGS` in `hardware_monitor.py` ↔ `defaults` in `hardware_monitor_gui.py` |
-| Gerätenamen | `HW_GERAET` in `hardware_monitor.py` ↔ `Gruppe("...")` in `detail_window_content.py` |
+| Gerätenamen | `HW_DEVICE` in `hardware_monitor.py` ↔ `Group("...")` in `detail_window_content.py` |
 | LHM-Version | `"downloads"` in `programs\hardware_monitor\program.json`: `version`, `url` und `sha256` gehören zusammen (neue Version → neue Prüfsumme, Sensornamen prüfen) |
 | Python-Version | `$PythonVersion` in `setup.ps1` ↔ die festen Versionen in `requirements.txt` |
 

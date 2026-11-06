@@ -5,7 +5,7 @@ Sammlung kleiner, selbst geschriebener Windows-Tools mit einer gemeinsamen Oberf
 | Teil | Ordner | Was es macht |
 |---|---|---|
 | **Toolbox** (GUI) | `toolbox/` | Oberfläche für alle Tools: Tabs oben, Programmliste links, Einstellungen rechts, Zahnrad für die GUI selbst |
-| **Hardware-Monitor** | `programs/hardware_monitor/` | CPU- und GPU-Temperatur als Zahlen in der Taskleiste; Klick öffnet ein Fenster mit Hardware-Werten in Tabs und allen Hardwaredaten (Hersteller-/Produkt-IDs, Seriennummern) ([README](programs/hardware_monitor/README.md)) |
+| **Hardware-Monitor** | `programs/hardware_monitor/` | CPU- und GPU-Temperatur als Zahlen in der Taskleiste; Klick öffnet ein Fenster mit Hardware-Werten in Tabs und allen Hardwaredaten (Hersteller-/Produkt-IDs, Seriennummern), dazu Stromverbrauch mit Kosten, Lüfterkurven, Laufwerkszustand (wie CrystalDiskInfo) und Privacy mode ([README](programs/hardware_monitor/README.md), englisch) |
 | **Discord Plus** | `programs/discord_plus/` | Erweiterungen für Discord – bisher der Call-Status: zeigt „Im Call“ an, sobald du telefonierst oder in einem Voice-Chat bist – auch für Freunde ohne Zugriff auf Server oder Anruf; Einrichtung mit Anleitung auf der Toolbox-Seite ([README](programs/discord_plus/README.md)) |
 | **Cube Game** | `programs/cube_game/` | Arena-Shooter: Das Spielfenster schrumpft ständig, Schüsse gegen seine Ränder drücken sie wieder auf (WASD + Maus) ([README](programs/cube_game/README.md)) |
 | **Last Bastion** | `programs/last_bastion/` | Echtzeit-Strategiespiel (StarCraft × They Are Billions × Factorio) mit eigenem Repo; die Toolbox-Seite findet den Spielordner, öffnet das Design-Dokument und startet das Spiel ([README](programs/last_bastion/README.md)) |
@@ -53,6 +53,7 @@ windows-toolbox/
       ├─ hardware_data.py          liest Hersteller, Modelle, IDs und Seriennummern für den Tab „Hardwaredaten“
       ├─ hardware_monitor_gui.py   seine Seite in der Toolbox
       ├─ hardware_monitor_settings.py   Startwerte, Laden/Speichern – gemeinsam für Monitor und Seite
+      ├─ energy.py, fans.py        Stromverbrauch und Lüftersteuerung (energy_view.py, fan_view.py, drive_view.py: ihre Tabs)
       ├─ i18n.json                 alle Texte auf Deutsch und Englisch (je ID eine Zeile pro Sprache)
       └─ lhm/                      LibreHardwareMonitor (Download aus program.json, nicht im Repo)
 ```
