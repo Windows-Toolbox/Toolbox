@@ -44,6 +44,7 @@ SLOW_FIELD = "slow_field"       # … and its blast a field that slows enemies
 ARMOR, RECOVERY = "armor", "recovery"        # the ship's hull
 CARD_SHOP = "card_shop"         # the Cards tab of the game menu – without it, no cards (and active ones don't apply)
 CARD_SLOTS = "card_slots"       # more cards active at once (on top of max_active in data/upgrades.json)
+GUN_UPGRADES = ("gun_energy", "gun_attack_speed", "gun_damage")   # all maxed: the machine gun and the cannon open
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ class Node:
     position: tuple             # (x, y) in grid units from the middle of the tree – y grows downwards
     values: dict = field(default_factory=dict, compare=False)   # what it does (DEFAULT_VALUES, data/skilltree.json)
     requires_max: bool = False  # True: the required nodes have to be at their maximum level, not just bought
+    lines_from: tuple | None = None     # the required nodes a line is drawn from (None: all) – the tooltip names all
 
     @property
     def max_level(self):
@@ -105,24 +107,26 @@ DEFAULT_NODES = [
     Node(RECOVERY, "Recovery", "After a hit you stay invulnerable for longer.", (2, 4, 6), (ARMOR,), "ship",
          (0, 3.3)),
 
-    # energy and the laser behind it – upwards
+    # energy and the laser behind it (it opens once both are maxed) – upwards
     Node("max_energy", "Max energy", "More energy for your weapons.", (2, 4, 6), (SHOP,), "energy", (-0.9, -1.1)),
     Node("energy_regen", "Energy regen", "Energy refills faster.", (2, 4, 6), (SHOP,), "energy", (0.9, -1.1)),
     Node("laser", "Laser", "A weapon: a beam that barely hurts enemies, but pushes the walls hard.", (6,),
-         ("max_energy", "energy_regen"), "laser", (0, -2.15)),
+         ("max_energy", "energy_regen"), "laser", (0, -2.15), requires_max=True),
     Node("laser_damage", "Damage", "More damage.", (2, 4, 6), ("laser",), "laser", (-1.0, -3.05)),
     Node("laser_energy", "Energy use", "Uses less energy.", (2, 4, 6), ("laser",), "laser", (0, -3.3)),
     Node("laser_wall_push", "Wall push", "Pushes the walls further.", (2, 4, 6), ("laser",), "laser",
          (1.0, -3.05)),
 
-    # the gun (the weapon every ship starts with) – to the left, the machine gun and the cannon behind it
+    # the gun (the weapon every ship starts with) – to the left, the machine gun and the cannon behind it (they open
+    # once the gun is fully upgraded)
     Node("gun_energy", "Energy use", "Uses less energy.", (2, 3, 5), (SHOP,), "gun", (-1.35, 0)),
     Node("gun_attack_speed", "Attack speed", "Shoots faster.", (2, 3, 5), ("gun_energy",), "gun",
          (-2.3, -0.75)),
     Node("gun_damage", "Damage", "More damage.", (2, 3, 5), ("gun_energy",), "gun", (-2.3, 0.75)),
 
     Node("machine_gun", "Machine gun", "A weapon: very fast weak shots – great against unarmored enemies, bad against "
-         "armor and walls.", (5,), ("gun_attack_speed",), "machine_gun", (-3.4, -1.45)),
+         "armor and walls.", (5,), GUN_UPGRADES, "machine_gun", (-3.4, -1.45), requires_max=True,
+         lines_from=("gun_attack_speed",)),
     Node("mg_attack_speed", "Attack speed", "Shoots faster – and spreads more.", (2, 4, 6),
          ("machine_gun",), "machine_gun", (-3.0, -2.55)),
     Node("mg_damage", "Damage", "More damage – and spreads more.", (2, 4, 6), ("machine_gun",),
@@ -137,7 +141,8 @@ DEFAULT_NODES = [
          "machine_gun", (-5.6, -1.3)),
 
     Node("cannon", "Cannon", "A weapon: slow heavy shots that pierce – great against armor and walls, wasted on weak "
-         "enemies.", (5,), ("gun_damage",), "cannon", (-3.4, 1.45)),
+         "enemies.", (5,), GUN_UPGRADES, "cannon", (-3.4, 1.45), requires_max=True,
+         lines_from=("gun_damage",)),
     Node("cannon_damage", "Damage", "More damage – and uses more energy.", (2, 4, 6), ("cannon",), "cannon",
          (-3.0, 2.55)),
     Node("cannon_attack_speed", "Attack speed", "Shoots faster.", (2, 4, 6), ("cannon",), "cannon",

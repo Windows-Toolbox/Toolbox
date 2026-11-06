@@ -9,6 +9,7 @@ How a node looks tells its state:
   - can be bought now: a white ring (grey if there aren't enough cores),
   - needs other nodes first: dark grey.
 A line to a node is in the branch's colour once the node it comes from is bought.
+Only what's bought and what comes right after it is shown (profile.visible) – the rest of the tree appears step by step.
 
 Only lays out and draws – buying is done by the game menu (it asks thing_at()).
 """
@@ -74,30 +75,39 @@ class SkillTreePanel:
 
     def thing_at(self, position):
         """The key of the node under position, or None."""
-        for node in NODES:
+        for node in self.shown():
             if self.center(node).distance_to(position) <= self.radius(node) + HIT_REACH:
                 return node.key
         return None
+
+    def shown(self):
+        return [node for node in NODES if self.profile.visible(node)]
 
     # --- drawing ---
 
     def draw(self, surface, hovered):
         """hovered: the key of the node under the mouse (or None) – it gets a tooltip."""
-        for node in NODES:                          # lines first, so the circles cover their ends
-            for key in node.requires:
+        shown = self.shown()
+        for node in shown:                          # lines first, so the circles cover their ends
+            for key in node.requires if node.lines_from is None else node.lines_from:
                 self.draw_line(surface, NODES_BY_KEY[key], node)
-        for branch in BRANCHES.values():
-            if branch.label_at is not None:
+        branches = {node.branch for node in shown if node.requires}    # Shop alone doesn't name the ship branch
+        for key, branch in BRANCHES.items():
+            if branch.label_at is not None and key in branches:
                 draw_text(surface, branch.name.upper(), 18, dimmed(branch.color, 0.8),
                           center=self.center(branch.label_at))
-        for node in NODES:
+        for node in shown:
             self.draw_node(surface, node, node.key == hovered)
         if hovered is not None:
             self.draw_tooltip(surface, NODES_BY_KEY[hovered])
 
     def draw_line(self, surface, parent, node):
         start, end = self.center(parent), self.center(node)
-        if self.profile.maxed(parent) if node.requires_max else self.profile.owns(parent.key):
+        if node.lines_from is not None:             # it needs more than its lines show: lit once all is there
+            done = self.profile.unlocked(node)
+        else:
+            done = self.profile.maxed(parent) if node.requires_max else self.profile.owns(parent.key)
+        if done:
             color = dimmed(BRANCHES[node.branch].color, 0.9 if self.profile.owns(node.key) else 0.45)
         else:
             color = LINE

@@ -120,6 +120,11 @@ class Profile:
             return [key for key in node.requires if not self.maxed(NODES_BY_KEY[key])]
         return [key for key in node.requires if not self.owns(key)]
 
+    def visible(self, node):
+        """Shown in the skill tree: bought, or every node it requires is bought (maxed or not) – so you see what you
+        have and what comes next, not what lies further on."""
+        return self.owns(node.key) or all(self.owns(key) for key in node.requires)
+
     def maxed(self, node):
         return self.level(node.key) >= node.max_level
 

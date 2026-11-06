@@ -94,7 +94,9 @@ interest*, hinter *Watchtower*) lässt Funde erscheinen – erst nur Sternentruh
 
 Die Beschreibungen von *Head start*, *Bigger arena*, *Core luck* und *Watchtower* und die Tooltips der Upgrades
 zeigen die Werte aus dieser Datei. *Burning ground* lässt sich erst kaufen, wenn *Cooldown*, *Blast radius* und
-*Damage* der Rakete voll ausgebaut sind (`requires_max` im Code, `game/skill_tree.py`).
+*Damage* der Rakete voll ausgebaut sind, *Machine gun* und *Cannon* erst, wenn alle drei Upgrades der Gun (*Energy use*,
+*Attack speed*, *Damage*) voll ausgebaut sind, der *Laser* erst mit *Max energy* und *Energy regen* voll ausgebaut
+(`requires_max` im Code, `game/skill_tree.py`).
 
 Weniger Stufen als vorher: Ein Spielstand mit mehr gekauften Stufen zählt nur so viele, wie der Knoten jetzt hat –
 gespeichert bleibt die alte Zahl, mit mehr Stufen ist sie wieder da. Ausgegebene Cores gibt es nicht zurück.

@@ -610,3 +610,9 @@ Notizen / offene Fragen:
   nicht reicht. Die Tasten-Anzeige leuchtet bei der rechten Maustaste nur mit zwei Waffen. Slots heißen jetzt
   „Slot 1“/„Slot 2“ statt LMB/RMB (Inventar, Loadout, Shop, Spielmenü); das Loadout zeigt die Energie je Waffe statt
   „Firing both“. Jede Waffe behält ihre eigene Feuerrate, die auch läuft, während sie nicht aktiv ist.
+- 19.10.2026 (Claude, auf Wunsch gebaut): **Machine gun und Cannon erst nach voller Gun:** beide brauchen *Energy use*,
+  *Attack speed* und *Damage* der Gun voll ausgebaut (`skill_tree.GUN_UPGRADES`, `requires_max`). Linien bleiben nur
+  von Attack speed bzw. Damage (`Node.lines_from`), sie leuchten erst, wenn die Waffe kaufbar ist; der Tooltip nennt
+  alles, was fehlt. Der **Laser** braucht ebenso *Max energy* und *Energy regen* voll. **Skilltree zeigt nur Gekauftes und das Nächste** (`Profile.visible`): ein Knoten erscheint, sobald
+  alle Knoten, die er braucht, mindestens eine Stufe haben – ein neues Profil sieht nur den Shop. Astnamen (GUN,
+  ENERGY, SHIP) erscheinen mit dem ersten sichtbaren Knoten ihres Asts.
