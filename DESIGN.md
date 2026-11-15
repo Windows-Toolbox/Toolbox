@@ -222,6 +222,7 @@ version exists once, and `protocol` is filled in by the kit that was compiled in
 | `run`, `launch`, `options` | as today for scripts (Rayman): a script without window, then a URL/program, with choice buttons |
 | `protocol` | the program serves its pipe, and this is the newest protocol version it speaks (4.3). Without it the Toolbox only knows "process running or not". |
 | `repository` | `owner/name` on GitHub. With it the Toolbox can update the program – any of the three kinds (section 9). |
+| `update_key` | the public key its releases are signed with. An update is only installed if its signature fits the key of the version already installed (section 9). |
 | `background` | keeps running without a window → the Toolbox's tray icon carries its menu (section 6); included in "quit/restart all programs" |
 
 Derived from `id`, never written down: pipe name `\\.\pipe\windows-toolbox.<id>`, scheduled task
@@ -390,9 +391,9 @@ One crate, modules by task. This is where today's `base.py`, `storage.py`, `i18n
 | `i18n` | `i18n.py` | same `i18n.json` format as today; `t!("page.status")`. Release builds compile the file in (`include_str!`); debug builds read it from `assets\` at start, so a text can be changed without compiling |
 | `ipc` | socket code in 4 files | pipe server/client, the standard commands |
 | `tray` | pystray | describe status line, menu and live displays; hand them to the Toolbox – or show an own icon when there is none (section 6); icons drawn from text (temperature numbers, via GDI) |
-| `autostart` | `winutil.py` (PowerShell) | Run key – direct API calls, name derived from `id` |
+| `autostart` | `winutil.py` (PowerShell) | Run key – direct API calls, name derived from `id`; also reads whether Windows has the entry disabled (Task Manager → Startup, section 8) |
 | `process` | `winutil.py`, starters | start hidden, run a helper elevated through its scheduled task (no prompt), wait for exit, job objects for scripts, efficiency mode (EcoQoS) |
-| `update` | `git pull` + Setup | one function for every kind of program and the Toolbox itself: look for a release, download, check, swap files (section 9) |
+| `update` | `git pull` + Setup | one function for every kind of program and the Toolbox itself: look for a release, download, check its signature, swap files; the same code installs a program from "Get programs" (section 9) |
 | `setup` | `setup.ps1`, `"downloads"` | idempotent steps a program declares: download + SHA-256 + unzip, winget package, copy into the protected folder, task (section 9) |
 | `manifest` | `find_manifests()` | read `program.json` (the Toolbox); build helper that generates it from `Cargo.toml` and embeds it (programs, 4.1) |
 
@@ -502,7 +503,9 @@ through macroquad instead, which redraws every frame – right for a game, wrong
 - **Reactive drawing**: egui only redraws on input or when asked (`request_repaint_after`). A page with live values
   asks for a redraw at its refresh rate while visible; everything else draws nothing while idle.
 - **Renderer**: `glow` (OpenGL) rather than `wgpu` – smaller exe, faster start, less memory for a few panels.
-  **(verify)**
+  **(verify)** – including the PCs where OpenGL is missing or too old (old drivers, virtual machines, remote
+  desktop): there the window must not stay empty. Either `wgpu` (DirectX) wins for that reason, or the kit falls
+  back to it, or it says clearly what is missing.
 - **Theme** in `kit::ui::theme(ctx)`, applied by every window – the editor's `style()` carried over: egui's dark
   visuals, text sizes 12 / 15 / 15 / 19 / 14 (small / body / button / heading / monospace). Colours for good / bad /
   warn and the green accent from today's `base.py` come along as constants. Light/dark/system and the zoom are
@@ -541,7 +544,24 @@ and says so.
   settings** (one zip with the `data\settings.json` of the Toolbox and of every program on the list),
   quit/restart, update, clean up, uninstall (section 9)
 
-Start-up cost today: Python interpreter + customtkinter + importing every program's page. New: one native exe that
+### What Windows shows
+
+- **Task Manager, processes**: every exe carries its name, icon and description as a compiled-in resource
+  (section 9), so the list reads "Hardware Monitor", not "pythonw.exe".
+- **Task Manager, Startup tab**: an autostart entry appears there under the same name – and can be disabled
+  there, which leaves the Run key in place. The kit reads that state too. "Start with Windows" then shows
+  "switched off by Windows" with a button that switches it back on, instead of claiming "on".
+- **Taskbar**: agent and window are two processes of one exe. A fixed application id (AppUserModelID,
+  `WindowsToolbox.<id>`) makes Windows treat them as one program, so pinning the window to the taskbar and
+  clicking the pin work as expected. **(verify)**
+- **Start menu**: a switch "Show in the Start menu" in the gear (off by default) creates one shortcut to
+  `Toolbox.exe`; it is repaired after a move like every other path (section 2).
+- **Settings → Installed apps**: deliberately no entry. The Toolbox is portable; it is removed by Gear →
+  Uninstall and deleting the folder (section 9).
+
+### Start-up cost
+
+Today: Python interpreter + customtkinter + importing every program's page. New: one native exe that
 reads a handful of small JSON files. Expectation: window visible in a fraction of a second; measured in M0 against
 today's Toolbox instead of promised here.
 
@@ -554,8 +574,21 @@ today's Toolbox instead of promised here.
 Today: clone → `Setup.exe` → Python via winget → copy 108 MB → pip → compile starters → downloads → admin steps.
 
 New: **download the release zip, unpack, double-click `Toolbox.exe`.** There is no setup program. Nothing to copy,
-nothing to compile, no Python. A program is installed the same way: unpack its release zip (the content of its
-`dist\`) anywhere, then **Add program…**.
+nothing to compile, no Python, no Rust – Rust is only needed by someone who builds. Nothing else has to be on
+the PC either: the Visual C++ runtime is linked into every exe (see "Building"), and the C# bridge uses the .NET
+Framework that is part of Windows.
+
+**Programs come with one click: "Get programs".** The Toolbox window has a list of the known programs (a small
+signed file, `programs.json`, in this repo; loaded from GitHub when the list is opened – never on its own). A
+click on one downloads its release zip, checks it, unpacks it into `programs\<id>\` next to `Toolbox.exe` and
+puts it on the list – the same code as an update. So a new PC needs one download by hand, the Toolbox; everything
+else happens inside it. Unpacking a zip yourself and **Add program…** stay possible for programs that are not on
+that list.
+
+**The two classic mistakes are caught.** If `Toolbox.exe` (or any kit program) is started from inside the zip
+preview – Windows then runs it from a temporary folder – or from a folder it cannot write to, it would lose its
+settings. The kit notices both at start and says what to do ("unpack the zip first", "move the folder out of
+Program Files") instead of running half-working.
 
 **A hint where the download is.** The `.exe` files are not signed (signing costs money). Windows SmartScreen can
 therefore warn once at the first start of a downloaded program ("Windows protected your PC" → *More info → Run
@@ -593,9 +626,16 @@ Each repo has the same small `build.ps1`: `cargo build --release` → copies the
 `program.json` into its `dist\` (the running-exe rename trick from last-bastion's `build.ps1`; it never deletes
 `dist\`, section 3). Requirement: Rust, already installed.
 
-**A release** is made by the second file, `release.ps1`: it runs `build.ps1`, zips `dist\` without `data\`, and
-publishes the zip together with its SHA-256 as GitHub release `v<version>` (`gh release create`), the version
-taken from `Cargo.toml`. It refuses if that version was already released or the repo has uncommitted changes.
+Two settings are the same in every repo and come with `template\`:
+
+- **The Visual C++ runtime is linked in** (`crt-static`, in the repo's own `.cargo\config.toml`). Otherwise an
+  exe needs `VCRUNTIME140.dll`, which a fresh Windows may not have – and then it does not start at all.
+- **A release profile** in `Cargo.toml` (link-time optimisation, symbols stripped): several MB less per exe.
+
+**A release** is made by the second file, `release.ps1`: it runs `build.ps1`, zips `dist\` without `data\`,
+**signs the zip**, and publishes zip and signature as GitHub release `v<version>` (`gh release create`), the
+version taken from `Cargo.toml`. It refuses if that version was already released or the repo has uncommitted
+changes.
 Name, icon and description in Task Manager come from a resource compiled into each exe by a build script – that is
 all `make_exe.py` and `starter.cs` were for.
 
@@ -605,7 +645,7 @@ Today `git pull` + `Setup.exe -Restart`. With compiled programs a user PC has no
 
 - **User PC**: on a click on "Check for updates" (automatic checking is a switch, off by default) the kit asks
   GitHub for the latest release of *that* repo (the manifest names it:
-  `"repository": "ItsMaxxx/hardware-monitor"`), downloads the zip, checks its SHA-256, swaps the files (a running
+  `"repository": "ItsMaxxx/hardware-monitor"`), downloads the zip, checks its signature, swaps the files (a running
   exe is renamed aside, `data\` is never touched), restarts what was running.
 - **Developer PC** (the program sits in a `dist\` below a git repo): the update button is replaced by the hint
   "run `build.ps1`".
@@ -619,12 +659,15 @@ a Toolbox. Every program is updated on its own, each with its own version.
 If an update brings a new bridge or a new LibreHardwareMonitor version, the copy in the protected folder is older
 than the one the program expects: its page shows "Set up" again, and that asks for admin rights once.
 
-What the checksum is worth: the SHA-256 of an update comes from the same release as the zip, so it only catches a
-**broken** download, not a manipulated one – the trust lies in HTTPS and the GitHub account. The checksum of
-LibreHardwareMonitor is different: it is pinned in the program's code and does catch a swapped file.
-
-Later, if wanted: a list of known programs in the Toolbox ("Get programs") that downloads and adds one with a
-click – the same release zips, just without the manual unpack.
+**Updates are signed.** A checksum lying in the same release as the zip would only catch a broken download:
+whoever can replace the zip can replace the checksum. So `release.ps1` signs the zip with a private key
+(Ed25519) that lies on the developer PC outside every repo, and the public key stands in the program's manifest
+(`update_key`; kit programs get it from the kit). An update is installed only if its signature fits the key of
+the version **already installed** – a taken-over GitHub account alone cannot push an update. `programs.json` is
+signed the same way and carries each program's key, so the first install from "Get programs" is checked too.
+The price: the private key has to be kept safe and backed up. If it is lost, the next version has to be
+downloaded by hand once. The checksum of LibreHardwareMonitor is pinned in the program's code and needs none of
+this.
 
 ### Uninstall
 
@@ -694,6 +737,8 @@ Toolbox – any program of your user could send them too. New:
   any check would rest on files the user can replace. The protection is what the bridge can do at all – read
   sensors, set a fan speed within the limits the mainboard allows – and that is deliberately everything a program
   of your user can reach through it. **(verify:** pipe from a normal to an elevated process**)**
+- **Fans go back to automatic** when the connection closes, for whatever reason: before it ends, the bridge hands
+  every fan it has set back to the mainboard. A crashed monitor never leaves a fan stuck at its last speed.
 - Without the task (not set up, or started on a PC without admin rights) the monitor still runs and shows what
   needs no admin rights – as today's double-click on `HardwareMonitor.exe` does.
 
@@ -727,6 +772,9 @@ end to end:
 - tray icons under Windows 11: fixed identities; does "show this icon" survive an update and a moved folder
 - a script in a named job object: found again after the agent was restarted, stopped as a whole
 - the slider rule (4.3) on the mini page: no jumping handle, one write to the file per drag
+- one application id for agent and window: pinning to the taskbar, grouping
+- the window on a PC without usable OpenGL (a virtual machine is enough)
+- `crt-static`: the built exe no longer asks for `VCRUNTIME140.dll`; size with and without the release profile
 
 Result, written into this file: measured numbers, corrections where an assumption was wrong, and **the formats**
 (section 14) – so that M1 starts from facts and fixed formats instead of sketches.
@@ -745,8 +793,9 @@ Toolbox.
 
 **M3 – Discord Plus in Rust.** First kit program and first one built in a repo of its own against the kit's git
 address: background role, its page shown in the new Toolbox (running and stopped), instant `set`, autostart, an
-action button (Connect), its menu under the Toolbox icon and the fallback icon without it, its own release zip
-and update. `template\` in this repo is extracted from it.
+action button (Connect), its menu under the Toolbox icon and the fallback icon without it, its own signed release
+zip and update, and **Get programs** in the Toolbox with Discord Plus as its first entry. `template\` in this
+repo is extracted from it.
 
 **M4 – Hardware Monitor in Rust.** Bridge as the only elevated part, status line and live displays in the tray,
 detail window (with the new blocks and the canvas from 4.5), settings, setup steps (PawnIO, LHM, task).
@@ -772,7 +821,7 @@ Settings files are carried over once per program: on first start the Rust progra
 | Add a setting | 4 places | 1 field + 1 line |
 | Change a port / task name | 3 files | does not exist |
 | Add a Python package | `requirements.txt` + check line in `setup.ps1` + Setup | `cargo add` |
-| Install on a new PC | clone, Setup.exe, minutes | unzip, double-click |
+| Install on a new PC | clone, Setup.exe, minutes | unzip, double-click; programs with one click each from "Get programs" |
 | Files after install | 3273 in `runtime\` alone | one exe per program |
 
 ### What gets worse
@@ -795,7 +844,8 @@ Settled: everything optional is opt-in, so "Temperatures in the taskbar" is off 
 of clone + setup (the project goal becomes "unzip = runs", for you "clone + `build.ps1` = runs"); settings per
 program folder, with a button "Export all settings" in the Toolbox as the replacement for copying one `data\`;
 the C# bridge for LibreHardwareMonitor, and only it with admin rights, installed in a folder only admins can
-write to; "Restart after a crash" exists as a switch, off by default.
+write to; "Restart after a crash" exists as a switch, off by default; "Get programs" is part of the core (M3),
+not a later extra; releases are signed with an own key.
 
 ---
 
@@ -829,7 +879,8 @@ have to be closed – in this order:
 
 1. **M0 writes down the formats.** Today they are only sketched in examples. After M0 this file contains, as
    fixed lists: every building block with its fields; the exact JSON of `hello`, of every state (`status`, `page`,
-   `tray`, `toast`, `bye`) and of every command; the fields of `program.json` and of `[package.metadata.toolbox]`;
+   `tray`, `toast`, `bye`) and of every command; the fields of `program.json`, of `[package.metadata.toolbox]` and
+   of `programs.json`; how a release is signed;
    the public functions of each kit module.
    Two sessions must not be able to invent two different formats.
 2. **M0 replaces every *(verify)*** by what was measured or found, and names the crates and versions that were
