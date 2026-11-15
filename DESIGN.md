@@ -1,7 +1,8 @@
 # Windows Toolbox in Rust – design
 
-Status: **proposal**, nothing of this is built yet. It describes where the Toolbox should end up, why, and in which
-order to get there without ever having a broken Toolbox in between.
+Status: **M0 (prototype) done** except two hand tests (section 11); M1 is next. It describes where the Toolbox
+should end up, why, and in which order to get there without ever having a broken Toolbox in between. The fixed
+formats are in section 15.
 
 Decisions already taken (2026-11-15):
 
@@ -26,11 +27,16 @@ Decisions already taken (2026-11-15):
 - **A program only ever sends its state**; nothing is answered, so replies and updates cannot be mixed up (4.3).
 - **At most one process per program holds its pipe and writes its settings** – stopped or running (section 5).
 
-Things marked **(verify)** are assumptions that the first milestone (M0, a throw-away prototype) has to confirm
-before anything is built on top of them.
+Decided after M0 (2026-11-16):
 
-This file is a concept: what, why, in which order. It is not yet a build manual – section 14 says what is still
-missing for that and how to work from it.
+- **Renderer: glow (OpenGL) only.** On a PC without usable OpenGL the window shows a clear message instead of
+  staying empty; no wgpu fallback (it would cost ~6 MB in every exe with a window) (section 7).
+
+Things marked **(verify)** are assumptions that the first milestone (M0, a throw-away prototype) had to confirm.
+The ones still marked are waiting for a hand test (section 11).
+
+This file says what, why, in which order; section 15 holds the fixed formats to build from, section 14 how to work
+from both.
 
 ---
 
@@ -169,8 +175,28 @@ none of them:
   change in the kit shows up in every program at the next build, without committing or `cargo update`. Someone who
   clones a single program does not have that file and simply gets the kit from git.
 
-Both are standard Cargo settings; that they combine as described from a parent folder is checked in M0.
-**(verify)**
+Both are standard Cargo settings and combine from a parent folder as described (M0: two repos below one
+`.cargo\config.toml`, one shared `target\`, the local kit used by both; a single repo copied elsewhere fetched the
+kit from git). Three things M0 showed:
+
+- **The git address must already hold the kit.** Cargo fetches the git source even when `[patch]` redirects it,
+  and fails if there is no `toolbox-kit` package there. So the kit is pushed to this repo (M1) before the first
+  program depends on it.
+- **On your PC `Cargo.lock` pins no kit commit.** With the redirect active, the lock file records the kit without a
+  source; a program built here (also its release) uses whatever the local `kit\` holds. Only a single clone without
+  the parent file pins a commit. That is wanted – the release is built from the kit you see – but it means a
+  release build is only reproducible together with the kit's state at that time.
+- The kit is found inside this repo's workspace (root `Cargo.toml` with `kit` as a member) by its package name.
+
+The patch line in `toolbox-programs\.cargo\config.toml`:
+
+```toml
+[build]
+target-dir = "target"
+
+[patch."https://github.com/ItsMaxxx/windows-toolbox"]
+toolbox-kit = { path = "windows-toolbox/kit" }
+```
 
 **Versions do not have to match.** Each `.exe` has its kit compiled in and runs on its own. The only meeting point
 is the conversation over the pipe (4.3), and that is kept compatible by rule.
@@ -251,7 +277,13 @@ zip). **Remove** on a program's page takes it off the list again; its folder is 
 - **Scripts belong to the agent.** The Toolbox window is a short-lived process, so the agent (section 8) starts
   scripts and puts each one into a named Windows job object (`WindowsToolbox.<id>`). "Running" is then "the job
   has processes" – still true after the window or the agent was restarted – and Stop ends the script together
-  with everything it started. **(verify)**
+  with everything it started.
+  M0 found the catch: a job's **name exists only while somebody holds a handle to it** – processes inside the job
+  do not count. When the agent ended, the script ran on but could no longer be found. Fix (tested): the script is
+  started suspended, put into the job, and **inherits one handle to its own job** (and only that one, through a
+  handle list); then it runs. The job stays findable as long as the script's first process runs. If that process
+  ends while something it started still runs, the leftovers are no longer found – acceptable for scripts that
+  stay in the foreground of their own work, as Rayman's does.
 
 For Last Bastion the agreement in its DESIGN.md 12.7 shrinks to one `program.json` that its `build.ps1` copies
 into `dist\`.
@@ -311,7 +343,11 @@ opens itself – the detail window, its own settings window – looks like the T
 while they were changed picks them up the next time the Toolbox connects.
 
 No program of ours runs with admin rights (section 10), so Toolbox and programs talk as equals: the pipe accepts
-the logged-in user and nobody else – stricter than today's open TCP port.
+the logged-in user and nobody else – stricter than today's open TCP port. (M0: security descriptor
+`D:P(A;;GA;;;<user SID>)` plus `PIPE_REJECT_REMOTE_CLIENTS`. Pipe handles are opened overlapped: on a synchronous
+handle Windows serialises all I/O, and a reader waiting for the next line would block every write.)
+
+The exact messages are listed in section 15.1.
 
 ### 4.4 Where a program's settings UI lives
 
@@ -431,8 +467,10 @@ One file, several ways it runs – so that the part that runs all day stays tiny
 - **background role**: pipe server, settings, and the workers with their tray data. Plain Win32 message loop.
   Never initialises egui or a graphics context. The workers can be **on** (the program "runs") or **off** (it
   only serves its settings page to the Toolbox, 4.4) – the same process either way, switched with `start` and
-  `stop`. With the workers off it ends as soon as nobody is connected any more. That way exactly one process holds
-  the pipe and writes `settings.json`, and Start can never mistake an open settings page for a running program.
+  `stop`. With the workers off it ends as soon as **nobody who wants its `page`** is connected any more (after
+  2 s). Not "nobody at all": the agent is connected to every running program for status and tray, and would keep
+  a stopped program alive forever (found in M0). That way exactly one process holds the pipe and writes
+  `settings.json`, and Start can never mistake an open settings page for a running program.
 - **window role**: an egui window (the detail window; the settings page when there is no Toolbox). A second process
   of the same `.exe`, started by the background role on a click or on `show`; it ends when the window closes and
   gives all its memory back.
@@ -442,8 +480,16 @@ part (Cube Game) simply have no background role.
 
 Why two processes instead of one hidden window: a hidden egui window keeps its renderer in memory, and egui's event
 loop is known to be awkward to wake from tray events while its window is hidden. Two roles avoid both by
-construction. **(verify in M0** – if a single process that creates and destroys its window on demand turns out
-clean and equally cheap, it is the simpler choice and the kit hides the difference anyway.)
+construction. Confirmed in M0 (release build, glow):
+
+| Process | Private memory | CPU while idle (10 s) |
+|---|---|---|
+| Toolbox agent (tray, pipe) | ~4 MB | 0 ms |
+| Toolbox window (open) | 70–125 MB, mostly the graphics driver | 0–16 ms |
+| a kit program, workers off, serving its page | ~2.5 MB | 0 ms |
+
+The window's memory is given back completely when it closes – the reason for the split. A single process that
+creates and destroys its window was therefore not pursued.
 
 ---
 
@@ -486,9 +532,12 @@ display. Two consequences:
 
 - The steps are described where they are needed: on the Toolbox's settings page and right next to the switch
   "Temperatures in the taskbar", with a button that opens that Windows settings page.
-- Windows remembers the choice per icon. Each icon therefore gets a fixed identity (Toolbox icon, live display 1,
-  2, …) that never changes. Whether the choice survives an update (the exe is renamed aside and replaced) and a
-  moved folder is checked in M0 **(verify)**; if moving loses it, the page says so.
+- Windows remembers the choice per icon, under `HKCU\Control Panel\NotifyIconSettings`, keyed by **exe path +
+  icon uid**. Each icon therefore gets a fixed uid that never changes: 1 = Toolbox icon, 2, 3, … = live displays
+  (no GUIDs – Windows ties a GUID to one exe path and refuses it after a move). M0 measured:
+  - **Update** (exe renamed aside, a different build at the same path): same entry, the choice is kept.
+  - **Moved folder**: a new entry, the choice is lost. The Toolbox's settings page and the live-display switch say
+    so ("after moving the folder, switch the icons on again").
 
 Cost while idle: a running program pushes `tray` only when its line changes (the Hardware Monitor at its icon
 rate, Discord Plus a few times a day); the agent wakes for that message and sleeps again.
@@ -502,10 +551,19 @@ through macroquad instead, which redraws every frame – right for a game, wrong
 
 - **Reactive drawing**: egui only redraws on input or when asked (`request_repaint_after`). A page with live values
   asks for a redraw at its refresh rate while visible; everything else draws nothing while idle.
-- **Renderer**: `glow` (OpenGL) rather than `wgpu` – smaller exe, faster start, less memory for a few panels.
-  **(verify)** – including the PCs where OpenGL is missing or too old (old drivers, virtual machines, remote
-  desktop): there the window must not stay empty. Either `wgpu` (DirectX) wins for that reason, or the kit falls
-  back to it, or it says clearly what is missing.
+- **Renderer**: `glow` (OpenGL), decided after M0 (release build, same window):
+
+  | | glow | wgpu |
+  |---|---|---|
+  | Toolbox.exe | 7.6 MB | 12.9 MB |
+  | window drawn, from process start | 230–380 ms | 770–875 ms |
+  | private memory of the open window | 70–125 MB | ~395 MB |
+
+  On a PC where OpenGL is missing or too old (virtual machine without graphics driver, very old driver), creating
+  the window fails. The kit catches that and shows a plain Windows message box saying what is missing ("this PC
+  has no usable OpenGL – install the graphics driver"), and writes it to `log.txt`. No wgpu fallback.
+- **eframe features**: `default-features = false`, then `glow`, `default_fonts`, `system_fonts`, `clipboard`,
+  `links`, `accesskit`.
 - **Theme** in `kit::ui::theme(ctx)`, applied by every window – the editor's `style()` carried over: egui's dark
   visuals, text sizes 12 / 15 / 15 / 19 / 14 (small / body / button / heading / monospace). Colours for good / bad /
   warn and the green accent from today's `base.py` come along as constants. Light/dark/system and the zoom are
@@ -514,8 +572,9 @@ through macroquad instead, which redraws every frame – right for a game, wrong
   `SidePanel` (programs of the tab), `CentralPanel` (the page), bottom bar (link target on hover, toasts).
 - Solved along the way: the Tk scroll stripes (egui scrolls by redrawing, there is nothing to smear), zoom
   (`Ctrl` + wheel is built in), DPI scaling, tooltips. The planned PySide6 port is no longer needed.
-- Check early: egui's built-in font must have the symbols used today (`●`, `⚠`, `⚒`, `⚙`); otherwise ship one small
-  symbol font in the kit. **(verify)**
+- **Symbols**: egui 0.37's own fonts lack `●`, `✓` and `▸` (its emoji fonts are an extra feature and still lack
+  them). eframe's `system_fonts` takes missing characters from the Windows fonts (Segoe UI Symbol) – everything
+  used today is there, nothing to ship. A kit test checks the list (section 13).
 
 ---
 
@@ -552,8 +611,9 @@ and says so.
   there, which leaves the Run key in place. The kit reads that state too. "Start with Windows" then shows
   "switched off by Windows" with a button that switches it back on, instead of claiming "on".
 - **Taskbar**: agent and window are two processes of one exe. A fixed application id (AppUserModelID,
-  `WindowsToolbox.<id>`) makes Windows treat them as one program, so pinning the window to the taskbar and
-  clicking the pin work as expected. **(verify)**
+  `WindowsToolbox.<id>`, set first thing in `main`) makes Windows treat them as one program, so pinning the window
+  to the taskbar and clicking the pin work as expected. **(verify** – built into the M0 prototype, hand test
+  pending**)**
 - **Start menu**: a switch "Show in the Start menu" in the gear (off by default) creates one shortcut to
   `Toolbox.exe`; it is repaired after a move like every other path (section 2).
 - **Settings → Installed apps**: deliberately no entry. The Toolbox is portable; it is removed by Gear →
@@ -562,8 +622,9 @@ and says so.
 ### Start-up cost
 
 Today: Python interpreter + customtkinter + importing every program's page. New: one native exe that
-reads a handful of small JSON files. Expectation: window visible in a fraction of a second; measured in M0 against
-today's Toolbox instead of promised here.
+reads a handful of small JSON files. Measured in M0, from process start to the drawn window: today's Toolbox
+~1080 ms, the new one 230–380 ms – including starting the program behind the shown page and receiving its page.
+The agent is ready ~40–50 ms after its start.
 
 ---
 
@@ -629,8 +690,15 @@ Each repo has the same small `build.ps1`: `cargo build --release` → copies the
 Two settings are the same in every repo and come with `template\`:
 
 - **The Visual C++ runtime is linked in** (`crt-static`, in the repo's own `.cargo\config.toml`). Otherwise an
-  exe needs `VCRUNTIME140.dll`, which a fresh Windows may not have – and then it does not start at all.
-- **A release profile** in `Cargo.toml` (link-time optimisation, symbols stripped): several MB less per exe.
+  exe needs `VCRUNTIME140.dll`, which a fresh Windows may not have – and then it does not start at all. M0 checked
+  the import tables: with it, the exes import only Windows' own DLLs.
+
+  ```toml
+  [target.x86_64-pc-windows-msvc]
+  rustflags = ["-C", "target-feature=+crt-static"]
+  ```
+- **A release profile** in `Cargo.toml`: `lto = true`, `strip = true`, `codegen-units = 1`. Result in M0: the
+  Toolbox with egui 7.6 MB, a program without window (background role only) ~0.6 MB.
 
 **A release** is made by the second file, `release.ps1`: it runs `build.ps1`, zips `dist\` without `data\`,
 **signs the zip**, and publishes zip and signature as GitHub release `v<version>` (`gh release create`), the
@@ -702,7 +770,7 @@ The question is only how Rust *calls* a .NET library – today pythonnet does th
 
 | | How | For | Against |
 |---|---|---|---|
-| **A. Bridge process** (recommended) | a tiny C# program `LhmBridge.exe` (one file, ~150 lines) loads the DLL and passes values on as JSON lines over a pipe: `open`, `read`, `set_fan` | LHM untouched and isolated; a new LHM version needs no change on our side as long as its sensor names stay | the one piece of own code that is not Rust; one more process with the .NET runtime in memory (pythonnet loads the same runtime today); needs a C# build (the `csc.exe` shipped with Windows compiles today's starters – whether it is enough for the bridge: **verify**) |
+| **A. Bridge process** (chosen) | a tiny C# program `LhmBridge.exe` (one file, ~150 lines) loads the DLL and passes values on as JSON lines over a pipe: `open`, `read`, `set_fan` | LHM untouched and isolated; a new LHM version needs no change on our side as long as its sensor names stay | the one piece of own code that is not Rust; one more process with the .NET runtime in memory (pythonnet loads the same runtime today); needs a C# build – the `csc.exe` shipped with Windows (`Framework64\v4.0.30319`, C# 5) is enough (M0: 7 KB exe against LHM 0.9.6, no extra config file) |
 | B. Host .NET inside the Rust process | load the .NET runtime through its hosting API and call LHM from Rust | 100 % Rust, one process | fragile, lots of `unsafe`, hard to debug |
 
 Plan: **A.** The Nvidia temperature already comes straight from `nvml.dll` (part of the driver) today; that
@@ -736,7 +804,13 @@ Toolbox – any program of your user could send them too. New:
   logged-in user. The bridge ends when that connection closes. It does **not** try to find out who is calling:
   any check would rest on files the user can replace. The protection is what the bridge can do at all – read
   sensors, set a fan speed within the limits the mainboard allows – and that is deliberately everything a program
-  of your user can reach through it. **(verify:** pipe from a normal to an elevated process**)**
+  of your user can reach through it.
+  M0 tested the whole path with one admin prompt: bridge + LHM copied to `C:\Program Files\WindowsToolbox\…`
+  (writable only by TrustedInstaller, SYSTEM, Administrators – a normal process could not replace the exe), a task
+  without trigger and with highest privileges, started by a normal process without a prompt, the bridge elevated
+  and connected after 0.7–1 s, CPU temperature read (without admin rights it reads 0). A pipe with the plain
+  user-only access rule works from the normal process to the elevated one – no integrity label is needed. The
+  bridge ended as soon as the connection closed.
 - **Fans go back to automatic** when the connection closes, for whatever reason: before it ends, the bridge hands
   every fan it has set back to the mainboard. A crashed monitor never leaves a fan stuck at its last speed.
 - Without the task (not set up, or started on a PC without admin rights) the monitor still runs and shows what
@@ -757,8 +831,12 @@ The Python code stays where it is (`toolbox\*.py`, `programs\<name>\`) until its
 leaves this repo at the moment it is ported: the new version starts in its own repo, the old folder here is
 deleted in the same step. The git history of the Python version stays in this repo.
 
-**M0 – Prototype (throw-away, a few days).** Answers every *(verify)* and tries the riskiest self-built part once
-end to end:
+**M0 – Prototype (throw-away) – done 2026-11-16.** The code lies outside this repo (`E:\Software\toolbox-m0\`, a
+kit, a Toolbox, a demo program, the bridge, the measuring scripts) and is not carried over; M1 starts fresh from
+section 15. Every point below is answered in the section it belongs to, except two hand tests still open:
+pinning to the taskbar (section 8) and the window's scaling on a real screen (the off-screen screenshot drew the
+content at 125 % in a window sized for 100 % – most likely an effect of the window lying where no monitor is).
+The list as it was planned:
 
 - tray agent + egui window as two roles of one exe; idle CPU and memory of both; start time next to today's Toolbox
 - glow vs wgpu; symbols in the font
@@ -777,7 +855,10 @@ end to end:
 - `crt-static`: the built exe no longer asks for `VCRUNTIME140.dll`; size with and without the release profile
 
 Result, written into this file: measured numbers, corrections where an assumption was wrong, and **the formats**
-(section 14) – so that M1 starts from facts and fixed formats instead of sketches.
+(section 15) – so that M1 starts from facts and fixed formats instead of sketches. The mini page ran through the
+whole chain as an automated test without a window: workers off → `set` pushed back at once → ten slider steps
+written to the file once, after the drag → an invalid value refused with a toast → a second start hands `start`
+to the running process → `quit`. How the slider feels by hand is part of the open hand test.
 
 **M1 – Kit + new Toolbox, next to the old one.** `kit\` (`app`, `settings`, `ui`, `i18n`, `ipc`, `tray`,
 `manifest`, `page`) and `toolbox\src\` in this repo, `Toolbox.exe` with library, page display, script page, tray
@@ -864,6 +945,11 @@ parts that matter are data:
 - **Settings**: load a file with missing, unknown and invalid fields; check what comes out.
 - **Texts**: every id used in the code exists in `i18n.json` in every language (one test in the kit, run for
   every program).
+- **Symbols**: every symbol the pages use (`●○⚠⚒⚙✓▸°·…`) is found in egui's fonts or the Windows fonts – an egui
+  context without a window, with the system font provider, asked per character.
+- **Off-screen when a window is needed** (measurements, a screenshot): the internal environment variable
+  `M0_OFFSCREEN` put the window at −20000/−20000, without taskbar entry and never activated; `PrintWindow`
+  captured it. Scaling is not trustworthy there (no monitor) – a drawing check at real scale stays a hand test.
 - **Setup steps**: each step's "already done?" check runs without changing anything.
 - **The drawing itself** is the small rest. egui can draw into memory instead of a window; whether that is worth
   using is decided when the first drawing bug shows up, not before.
@@ -874,17 +960,16 @@ All of it runs with `cargo test`, without admin rights and without a window.
 
 ## 14. Working from this document
 
-This file fixes the direction. Before it is enough to build from without deciding things on the way, three gaps
-have to be closed – in this order:
+This file fixes the direction. Before it was enough to build from without deciding things on the way, three gaps
+had to be closed – in this order:
 
-1. **M0 writes down the formats.** Today they are only sketched in examples. After M0 this file contains, as
-   fixed lists: every building block with its fields; the exact JSON of `hello`, of every state (`status`, `page`,
-   `tray`, `toast`, `bye`) and of every command; the fields of `program.json`, of `[package.metadata.toolbox]` and
-   of `programs.json`; how a release is signed;
-   the public functions of each kit module.
+1. **M0 writes down the formats.** Done: section 15 – every building block with its fields; the exact JSON of
+   `hello`, of every state and every command; the fields of `program.json`, of `[package.metadata.toolbox]` and of
+   `programs.json`; how a release is signed; the public functions of each kit module.
    Two sessions must not be able to invent two different formats.
 2. **M0 replaces every *(verify)*** by what was measured or found, and names the crates and versions that were
-   actually used (looked up at that time, not taken from memory).
+   actually used (looked up at that time, not taken from memory). Done, except the two hand tests (section 11);
+   crates in 15.7.
 3. **Every port starts with a checklist of what the old program can do**, written from its Python code and its
    README before the first line of Rust: every setting, every menu entry, every command, every special case
    (for the Hardware Monitor e.g. fast start, privacy mode, power log, fan curves, task repair, efficiency mode).
@@ -903,3 +988,187 @@ Rules that hold for all work on this project:
 - **Keep this file true**: when the build shows that something here is wrong, the file is corrected in the same
   commit.
 - Code, comments and documents in English; each milestone ends usable and committed.
+
+---
+
+## 15. Formats
+
+Fixed after M0. Each list is complete for protocol 1; a later protocol only ever **adds** (a new message, a new
+field, a new block type) and never gives an existing one a new meaning. Both sides ignore what they do not know.
+
+### 15.1 Pipe messages
+
+One JSON object per line (UTF-8, `\n`), each with a `type`. Pipe names: `\\.\pipe\windows-toolbox.<id>` for a
+program, `\\.\pipe\windows-toolbox.toolbox` for the agent. Both sides use `min(own protocol, other protocol)`.
+
+**To a program** (from the agent or the window):
+
+| `type` | Fields | Example |
+|---|---|---|
+| `hello` | `protocol` (number), `language` (`"de"`, `"en"`), `theme` (`"dark"`, `"light"`, `"system"`), `zoom` (number, 1.0 = 100 %), `want` (list of `"status"`, `"page"`, `"tray"`) | `{"type":"hello","protocol":1,"language":"de","theme":"dark","zoom":1.0,"want":["status","page"]}` |
+| `set` | `key` (string), `value` (any JSON) | `{"type":"set","key":"icon_interval","value":1.0}` |
+| `action` | `name` (string) | `{"type":"action","name":"connect"}` |
+| `start`, `stop`, `show`, `quit` | – | `{"type":"start"}` |
+
+The first message on a connection must be `hello`; a program closes a connection that starts with anything else.
+A later `hello` replaces language, look and `want` of that connection.
+
+**From a program**:
+
+| `type` | Fields | When |
+|---|---|---|
+| `hello` | `protocol`, `id`, `version` (string), `pid` (number) | first, as the answer to the caller's `hello` |
+| `status` | `running` (bool: workers on), `state` (`"ok"`, `"warn"`, `"bad"`), `text` (string, may be empty) | after `hello` if wanted, then on every change |
+| `page` | `blocks` (list, 15.2) | after `hello` if wanted, then on every change |
+| `tray` | `line` (string), `menu` (list of `{"label","action"}`), `live` (list of `{"text","state"}`, at most 3, text at most 3 characters) | after `hello` if wanted, then on every change |
+| `toast` | `text` | once, only to the connection whose command caused it (a refused `set`, the result of an `action`) |
+| `bye` | – | to every connection, right before the program ends on purpose |
+
+A refused `set` is answered with a `toast` and the unchanged `page`, so a control that already moved snaps back.
+A slider's `set` carries a float; an integer field accepts it when it is whole.
+
+**To the agent** (`windows-toolbox.toolbox`; no `hello` needed):
+
+| `type` | Fields | Effect |
+|---|---|---|
+| `show` | `id` (optional) | open the window, on this program's page if given |
+| `started` | `id` | a program announces itself when it starts its workers; the agent then connects to it like to every running program (no polling, section 6) |
+| `quit` | `all` (bool, optional) | end the agent – with `all`, every background program first |
+
+### 15.2 Building blocks of a page
+
+Every block is an object with a `type`. A `key` is a field of the program's settings struct; `value` is its current
+value, filled in by the kit.
+
+| `type` | Fields | Drawn as |
+|---|---|---|
+| `section` | `title`, `blocks` (list) | heading, then its blocks |
+| `text` | `text` | a paragraph |
+| `status` | `text`, `state` (`ok`/`warn`/`bad`) | a line with a coloured `●` |
+| `switch` | `label`, `key`, `value` (bool) | a checkbox; sends `set` with true/false |
+| `slider` | `label`, `key`, `value`, `min`, `max`, `step` (numbers), `unit` (string) | a slider with its value; the slider rule of 4.3 |
+| `choice` | `label`, `key`, `value`, `options` (list of `{"value","label"}`) | one button per option, the current one selected |
+| `buttons` | `buttons` (list of `{"label","action"}`) | a row of buttons; each sends `action` |
+
+Unknown `type` → a line "This part of the page needs a newer Toolbox". Blocks still to come (4.5) get their fields
+here when they are built: `combo`, `entry`, `tabs`, `table`, `graph`, `canvas`.
+
+### 15.3 `program.json`
+
+| Field | Type | Kinds | Notes |
+|---|---|---|---|
+| `id` | string `[a-z0-9_]+` | all | pipe, task, autostart, job names derive from it (4.1) |
+| `name`, `description`, `category` | text | all | text = a string or `{"de": "…", "en": "…"}`; a missing language falls back to `en`, then to the first one |
+| `version` | string | all | |
+| `exe` | path relative to the manifest | external exe, kit program | what Start/Play runs |
+| `run` | path of a `.ps1` relative to the manifest | script | started hidden by the agent: `powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <run>`, in its job (4.2) |
+| `launch` | URL or path | script | opened after `run` was started (Rayman: `uplay://…`) |
+| `options` | `{"<name>": {"values": [...], "default": …, "label": text, "value_labels": {"<value>": text}}}` | script | shown as `choice` blocks; written to the script's `data\settings.json` as `{"<name>": value}`, which the script reads (today `data\rayman_legends.json` in the Toolbox) |
+| `hint`, `button` | text | script | explanation above the options; label of the start button (default "Start") |
+| `protocol` | number | kit program | newest protocol it speaks |
+| `background` | bool | kit program | has a background role (tray, "quit all") |
+| `repository` | `"owner/name"` | all, optional | updates (section 9) |
+| `update_key` | base64, 32 bytes | all with `repository` | Ed25519 public key (15.6) |
+
+Kit programs never write it by hand (15.4). Example, Rayman after M2:
+
+```json
+{
+  "id": "rayman_legends",
+  "name": "Rayman Legends",
+  "version": "1.1",
+  "category": { "de": "Spiele", "en": "Games" },
+  "description": { "de": "Startet Rayman Legends rahmenlos …", "en": "Starts Rayman Legends borderless …" },
+  "run": "rayman_borderless.ps1",
+  "launch": "uplay://launch/410/0",
+  "button": { "de": "Spielen", "en": "Play" },
+  "options": {
+    "Pos": {
+      "values": ["Left", "Center", "Right"],
+      "default": "Center",
+      "label": { "de": "Position", "en": "Position" },
+      "value_labels": { "Left": { "de": "Links", "en": "Left" }, "Center": { "de": "Mitte", "en": "Center" } }
+    }
+  }
+}
+```
+
+### 15.4 `[package.metadata.toolbox]` (kit programs)
+
+```toml
+[package]
+name = "hardware-monitor"
+version = "2.0.0"                                   # -> "version"
+description = "CPU and GPU temperature …"           # -> "description" (en), unless given below
+repository = "https://github.com/ItsMaxxx/hardware-monitor"   # -> "repository": "ItsMaxxx/hardware-monitor"
+
+[package.metadata.toolbox]
+id = "hardware_monitor"
+exe = "HardwareMonitor.exe"                         # the name build.ps1 gives the exe in dist\
+category = { de = "Allgemein", en = "General" }
+background = true
+name = { de = "Hardware-Monitor", en = "Hardware Monitor" }
+description = { de = "…", en = "…" }                # optional, overrides [package].description
+```
+
+The kit's build helper (`kit::build::manifest()` in `build.rs`) reads this, adds `protocol` and `update_key` from the
+kit, embeds the manifest in the exe and writes `program.json` next to the build output; `build.ps1` copies it into
+`dist\`. The same build script compiles the resource with name, icon and description for Task Manager.
+
+### 15.5 `programs.json` ("Get programs")
+
+In this repo's root, with `programs.json.sig` next to it (15.6). Loaded from
+`https://raw.githubusercontent.com/ItsMaxxx/windows-toolbox/main/programs.json` only when the list is opened.
+
+```json
+{
+  "programs": [
+    {
+      "id": "discord_plus",
+      "name": { "de": "Discord Plus", "en": "Discord Plus" },
+      "description": { "de": "…", "en": "…" },
+      "repository": "ItsMaxxx/discord-plus",
+      "update_key": "<base64>"
+    }
+  ]
+}
+```
+
+### 15.6 Signed releases
+
+- **Algorithm**: Ed25519 (`ed25519-dalek`). Signed is the zip file's exact bytes.
+- **Private key**: 32-byte seed, base64, in `%USERPROFILE%\.windows-toolbox\release-key` – outside every repo.
+  Backed up by hand. A small binary `sign` in this repo's workspace creates the key once and signs files;
+  `release.ps1` of every repo calls it.
+- **Public key**: base64 of the 32 bytes, `update_key` in the manifest (kit programs: a constant in the kit).
+- **Release assets**: `<id>-<version>.zip` and `<id>-<version>.zip.sig` (base64 of the 64-byte signature),
+  release tag `v<version>`. The zip holds what `dist\` holds, without `data\`.
+- **Check**: an update is installed only if the signature fits the `update_key` of the **installed** version; a
+  first install from "Get programs" checks against the key in the signed `programs.json`, which itself is checked
+  against the key compiled into the Toolbox. No key rotation: a lost key means one manual download (section 9).
+
+### 15.7 Kit modules – public functions
+
+Names and shapes M1 starts from. Modules marked *M0* exist in the prototype in this form; the others are fixed when
+they are built and written back here.
+
+| Module | Public functions |
+|---|---|
+| `app` *(M0)* | `trait Program { type Settings; const ID; const VERSION; fn page(&self, &mut page::Builder, &Settings); fn status(&self, running: bool) -> Status; fn tray(&self) -> Tray; fn applied(&mut self, &Settings); fn action(&mut self, &str) -> Option<String> }` · `run(program, worker)` – role, single instance, pipe, settings, delayed saving · `Runtime::{changed, running, with}` · `data_dir()` · `log(msg)` |
+| `settings` *(M0)* | `Settings::<T>::load(path)` – missing fields default, invalid ones fall back one by one, unknown ones kept · `.value` · `.save()` (written aside, then renamed) |
+| `page` *(M0)* | `Page { blocks }` · `Block` (15.2) · `Builder::{section, text, status, switch, slider, choice, buttons, finish}` · `apply_set(&settings, key, value) -> Result<T, String>` · `check_keys::<Settings>(page)` for the test |
+| `proto` *(M0)* | `Command`, `State`, `Status`, `Health`, `Tray`, `MenuEntry`, `ToolboxHello`, `Want`, `PROTOCOL` – the messages of 15.1 as serde types |
+| `ipc` *(M0)* | `pipe_name(id)` · `Server::bind(id)` (`AlreadyExists` = runs already) · `Server::accept()` · `connect(id)` · `exists(id)` · `Conn::{send, send_line, read_line, close}` |
+| `ui` *(M0)* | `theme(ctx)` · `PageView::show(ui, &Page) -> Vec<Command>` · `ACCENT`, `GOOD`, `WARN`, `BAD`, `health_color()` |
+| `tray` *(M0)* | `create(handler) -> Waker` · `run_loop()` · `Tray::{set_icon(uid, text, color, tip), remove_icon, quit}` · `text_icon(text, color)` · `Event`, `Item` |
+| `process` *(M0: `Job`)* | `Job::{create, open, spawn, active_processes, terminate}` · `spawn_hidden(cmd)` · `run_task(name)` · `efficiency_mode()` |
+| `i18n` | `t!("id")` · `set_language(lang)` · `check_ids()` for the test |
+| `autostart` | `state(id) -> Off/On/DisabledByWindows` · `set(id, on)` · `repair(id)` |
+| `manifest` | `Manifest::read(folder)` (`dist\program.json`, else `program.json`) · `Text::get(lang)` · `build::manifest()` for `build.rs` |
+| `update` | `latest(repository) -> Option<Release>` · `install(release, folder, key)` |
+| `setup` | `steps![…]` · `Step::{Winget, Download, Copy, Task}` · `pending() -> Vec<Step>` · `run(steps)` |
+
+**Crates used in M0** (looked up 2026-11-15): `eframe` / `egui` 0.37.0 (features in section 7),
+`egui_system_font_provider` 0.37.0 (through eframe's `system_fonts`), `windows-sys` 0.61.2, `serde` 1.0.229,
+`serde_json` 1.0.154; Rust 1.99.0, edition 2024. For later milestones, to be looked up again when used:
+`ed25519-dalek` (3.0.0 at the time of M0), an HTTPS client for updates and Discord Plus' login.
