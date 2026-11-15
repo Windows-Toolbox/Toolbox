@@ -1025,6 +1025,14 @@ A later `hello` replaces language, look and `want` of that connection.
 | `toast` | `text` | once, only to the connection whose command caused it (a refused `set`, the result of an `action`) |
 | `bye` | – | to every connection, right before the program ends on purpose |
 
+**Live displays** (`live` in `tray`): each entry becomes one extra tray icon of the Toolbox (uids 2, 3, 4 – section
+6), shown only while the program's switch for it is on. The icon is the text drawn large in the colour of its
+`state` (`ok` green, `warn` yellow, `bad` red) on a transparent ground – today's CPU/GPU icons of the Hardware
+Monitor, e.g. `[{"text":"52","state":"ok"},{"text":"81","state":"warn"}]`. The limits come from the size of a tray
+icon (16×16 pixels at 100 % Windows scaling, 32×32 at 200 %): two digits are well readable, a third one (`100`)
+only just; more characters are cut off. At most three icons per program, so one program cannot fill the taskbar;
+what the icons show and where the colour changes is decided by the program.
+
 A refused `set` is answered with a `toast` and the unchanged `page`, so a control that already moved snaps back.
 A slider's `set` carries a float; an integer field accepts it when it is whole.
 
