@@ -1,6 +1,6 @@
 # Windows Toolbox in Rust – design
 
-Status: **M0 (prototype) done** except two hand tests (section 11); M1 is next. It describes where the Toolbox
+Status: **M0 (prototype) done** except one hand test (section 11); M1 is next. It describes where the Toolbox
 should end up, why, and in which order to get there without ever having a broken Toolbox in between. The fixed
 formats are in section 15.
 
@@ -33,7 +33,7 @@ Decided after M0 (2026-11-16):
   staying empty; no wgpu fallback (it would cost ~6 MB in every exe with a window) (section 7).
 
 Things marked **(verify)** are assumptions that the first milestone (M0, a throw-away prototype) had to confirm.
-The ones still marked are waiting for a hand test (section 11).
+The one still marked in section 8 is waiting for a hand test (section 11).
 
 This file says what, why, in which order; section 15 holds the fixed formats to build from, section 14 how to work
 from both.
@@ -833,9 +833,10 @@ deleted in the same step. The git history of the Python version stays in this re
 
 **M0 – Prototype (throw-away) – done 2026-11-16.** The code lies outside this repo (`E:\Software\toolbox-m0\`, a
 kit, a Toolbox, a demo program, the bridge, the measuring scripts) and is not carried over; M1 starts fresh from
-section 15. Every point below is answered in the section it belongs to, except two hand tests still open:
-pinning to the taskbar (section 8) and the window's scaling on a real screen (the off-screen screenshot drew the
-content at 125 % in a window sized for 100 % – most likely an effect of the window lying where no monitor is).
+section 15. Every point below is answered in the section it belongs to, except pinning to the taskbar
+(section 8), still open. Hand test 2026-11-16: the window on the real screen is scaled correctly, slider, tray menu
+and page work – the off-screen screenshot's 125 % content in a 100 % window was only an effect of the window lying
+where no monitor is.
 The list as it was planned:
 
 - tray agent + egui window as two roles of one exe; idle CPU and memory of both; start time next to today's Toolbox
@@ -968,7 +969,7 @@ had to be closed – in this order:
    `programs.json`; how a release is signed; the public functions of each kit module.
    Two sessions must not be able to invent two different formats.
 2. **M0 replaces every *(verify)*** by what was measured or found, and names the crates and versions that were
-   actually used (looked up at that time, not taken from memory). Done, except the two hand tests (section 11);
+   actually used (looked up at that time, not taken from memory). Done, except one hand test (section 11);
    crates in 15.7.
 3. **Every port starts with a checklist of what the old program can do**, written from its Python code and its
    README before the first line of Rust: every setting, every menu entry, every command, every special case
