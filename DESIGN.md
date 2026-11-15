@@ -1,6 +1,6 @@
 # Windows Toolbox in Rust – design
 
-Status: **M0 (prototype) done** except one hand test (section 11); M1 is next. It describes where the Toolbox
+Status: **M0 (prototype) done** (section 11); M1 is next. It describes where the Toolbox
 should end up, why, and in which order to get there without ever having a broken Toolbox in between. The fixed
 formats are in section 15.
 
@@ -31,9 +31,11 @@ Decided after M0 (2026-11-16):
 
 - **Renderer: glow (OpenGL) only.** On a PC without usable OpenGL the window shows a clear message instead of
   staying empty; no wgpu fallback (it would cost ~6 MB in every exe with a window) (section 7).
+- **All repos live in the GitHub organization `windows-toolbox`**, not under the personal account: one link shows
+  every program, the personal profile stays tidy (addresses: `windows-toolbox/<repo>`).
 
-Things marked **(verify)** are assumptions that the first milestone (M0, a throw-away prototype) had to confirm.
-The one still marked in section 8 is waiting for a hand test (section 11).
+M0 (a throw-away prototype) confirmed or corrected every assumption that was marked **(verify)**; the one left in
+4.5 (the embedded window) belongs to a later step and is checked before that step relies on it.
 
 This file says what, why, in which order; section 15 holds the fixed formats to build from, section 14 how to work
 from both.
@@ -161,7 +163,7 @@ The Toolbox does not care about that folder: every program is added on its own w
 wherever it is.
 
 **What ties a program to this repo** is one line in its `Cargo.toml`:
-`toolbox-kit = { git = "https://github.com/ItsMaxxx/windows-toolbox" }`. Cargo fetches the library when building
+`toolbox-kit = { git = "https://github.com/windows-toolbox/windows-toolbox" }`. Cargo fetches the library when building
 and remembers the exact commit in the program's `Cargo.lock`; `cargo update` moves a program to the newest kit when
 *you* decide.
 
@@ -194,7 +196,7 @@ The patch line in `toolbox-programs\.cargo\config.toml`:
 [build]
 target-dir = "target"
 
-[patch."https://github.com/ItsMaxxx/windows-toolbox"]
+[patch."https://github.com/windows-toolbox/windows-toolbox"]
 toolbox-kit = { path = "windows-toolbox/kit" }
 ```
 
@@ -229,7 +231,7 @@ and `autostart` go away.
   "category": "General",
   "description": "CPU and GPU temperature in the taskbar …",
   "exe": "HardwareMonitor.exe",
-  "repository": "ItsMaxxx/hardware-monitor",
+  "repository": "windows-toolbox/hardware-monitor",
   "protocol": 1,
   "background": true
 }
@@ -612,8 +614,9 @@ and says so.
   "switched off by Windows" with a button that switches it back on, instead of claiming "on".
 - **Taskbar**: agent and window are two processes of one exe. A fixed application id (AppUserModelID,
   `WindowsToolbox.<id>`, set first thing in `main`) makes Windows treat them as one program, so pinning the window
-  to the taskbar and clicking the pin work as expected. **(verify** – built into the M0 prototype, hand test
-  pending**)**
+  to the taskbar and clicking the pin work as expected (M0 hand test: works). The pin shows the exe's name and
+  icon – in the prototype "toolbox" and the generic icon, because it had no resource yet; with the resource of
+  section 9 it reads "Windows Toolbox" with its own icon.
 - **Start menu**: a switch "Show in the Start menu" in the gear (off by default) creates one shortcut to
   `Toolbox.exe`; it is repaired after a move like every other path (section 2).
 - **Settings → Installed apps**: deliberately no entry. The Toolbox is portable; it is removed by Gear →
@@ -713,7 +716,7 @@ Today `git pull` + `Setup.exe -Restart`. With compiled programs a user PC has no
 
 - **User PC**: on a click on "Check for updates" (automatic checking is a switch, off by default) the kit asks
   GitHub for the latest release of *that* repo (the manifest names it:
-  `"repository": "ItsMaxxx/hardware-monitor"`), downloads the zip, checks its signature, swaps the files (a running
+  `"repository": "windows-toolbox/hardware-monitor"`), downloads the zip, checks its signature, swaps the files (a running
   exe is renamed aside, `data\` is never touched), restarts what was running.
 - **Developer PC** (the program sits in a `dist\` below a git repo): the update button is replaced by the hint
   "run `build.ps1`".
@@ -833,9 +836,8 @@ deleted in the same step. The git history of the Python version stays in this re
 
 **M0 – Prototype (throw-away) – done 2026-11-16.** The code lies outside this repo (`E:\Software\toolbox-m0\`, a
 kit, a Toolbox, a demo program, the bridge, the measuring scripts) and is not carried over; M1 starts fresh from
-section 15. Every point below is answered in the section it belongs to, except pinning to the taskbar
-(section 8), still open. Hand test 2026-11-16: the window on the real screen is scaled correctly, slider, tray menu
-and page work – the off-screen screenshot's 125 % content in a 100 % window was only an effect of the window lying
+section 15. Every point below is answered in the section it belongs to. Hand test 2026-11-16: the window on the
+real screen is scaled correctly, slider, tray menu, page and pinning to the taskbar work – the off-screen screenshot's 125 % content in a 100 % window was only an effect of the window lying
 where no monitor is.
 The list as it was planned:
 
@@ -969,7 +971,7 @@ had to be closed – in this order:
    `programs.json`; how a release is signed; the public functions of each kit module.
    Two sessions must not be able to invent two different formats.
 2. **M0 replaces every *(verify)*** by what was measured or found, and names the crates and versions that were
-   actually used (looked up at that time, not taken from memory). Done, except one hand test (section 11);
+   actually used (looked up at that time, not taken from memory). Done;
    crates in 15.7.
 3. **Every port starts with a checklist of what the old program can do**, written from its Python code and its
    README before the first line of Rust: every setting, every menu entry, every command, every special case
@@ -1109,7 +1111,7 @@ Kit programs never write it by hand (15.4). Example, Rayman after M2:
 name = "hardware-monitor"
 version = "2.0.0"                                   # -> "version"
 description = "CPU and GPU temperature …"           # -> "description" (en), unless given below
-repository = "https://github.com/ItsMaxxx/hardware-monitor"   # -> "repository": "ItsMaxxx/hardware-monitor"
+repository = "https://github.com/windows-toolbox/hardware-monitor"   # -> "repository": "windows-toolbox/hardware-monitor"
 
 [package.metadata.toolbox]
 id = "hardware_monitor"
@@ -1127,7 +1129,7 @@ kit, embeds the manifest in the exe and writes `program.json` next to the build 
 ### 15.5 `programs.json` ("Get programs")
 
 In this repo's root, with `programs.json.sig` next to it (15.6). Loaded from
-`https://raw.githubusercontent.com/ItsMaxxx/windows-toolbox/main/programs.json` only when the list is opened.
+`https://raw.githubusercontent.com/windows-toolbox/windows-toolbox/main/programs.json` only when the list is opened.
 
 ```json
 {
@@ -1136,7 +1138,7 @@ In this repo's root, with `programs.json.sig` next to it (15.6). Loaded from
       "id": "discord_plus",
       "name": { "de": "Discord Plus", "en": "Discord Plus" },
       "description": { "de": "…", "en": "…" },
-      "repository": "ItsMaxxx/discord-plus",
+      "repository": "windows-toolbox/discord-plus",
       "update_key": "<base64>"
     }
   ]
