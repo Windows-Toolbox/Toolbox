@@ -1,0 +1,34 @@
+{
+  "program.name": {
+    "de": "Rayman Legends",
+    "en": "Rayman Legends"
+  },
+  "program.description": {
+    "de": "Startet Rayman Legends rahmenlos in 2560×1440 – eine Einstellung, die Ubisoft nie ins Spiel eingebaut hat (rayman_legends).",
+    "en": "Starts Rayman Legends borderless at 2560×1440 – a setting Ubisoft never built into the game (rayman_legends)."
+  },
+  "page.hint": {
+    "de": "„Spielen“ startet das Spiel über Ubisoft Connect und ein kleines Skript ohne Fenster: Es wartet bis zu 5 Minuten auf das Spielfenster, nimmt ihm den Rahmen und setzt es auf 2560×1440. Solange das Spiel läuft, holt es den Rahmen wieder weg, falls das Spiel ihn zurückbringt, und hält es nur dann über der Taskleiste, wenn es aktiv ist. Die Position (links, Mitte, rechts) kannst du jederzeit umschalten – läuft das Spiel, rutscht das Fenster sofort dorthin. Einmal im Spiel einstellen: Fenstermodus mit 2560×1440.",
+    "en": "\"Play\" starts the game via Ubisoft Connect and a small script without a window: it waits up to 5 minutes for the game window, removes its frame and sets it to 2560×1440. While the game runs it removes the frame again if the game brings it back, and keeps it above the taskbar only while it is active. You can switch the position (left, center, right) at any time – while the game runs, the window moves there right away. Set once in the game: windowed mode at 2560×1440."
+  },
+  "page.button": {
+    "de": "Spielen",
+    "en": "Play"
+  },
+  "option.Pos": {
+    "de": "Position",
+    "en": "Position"
+  },
+  "option.Pos.Center": {
+    "de": "Mitte",
+    "en": "Center"
+  },
+  "option.Pos.Left": {
+    "de": "Links",
+    "en": "Left"
+  },
+  "option.Pos.Right": {
+    "de": "Rechts",
+    "en": "Right"
+  }
+}

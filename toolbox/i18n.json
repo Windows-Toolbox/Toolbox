@@ -353,5 +353,30 @@
   "setup.cancel": {
     "de": "Abbrechen",
     "en": "Cancel"
+  },
+
+  "script.section": {
+    "de": "Starten",
+    "en": "Start"
+  },
+  "script.start": {
+    "de": "Starten",
+    "en": "Start"
+  },
+  "script.stop": {
+    "de": "Beenden",
+    "en": "Stop"
+  },
+  "script.open_folder": {
+    "de": "Ordner öffnen",
+    "en": "Open folder"
+  },
+  "script.running": {
+    "de": "Das Skript läuft.",
+    "en": "The script is running."
+  },
+  "script.not_running": {
+    "de": "Das Skript läuft gerade nicht.",
+    "en": "The script isn't running."
   }
 }

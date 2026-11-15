@@ -11,6 +11,7 @@ Requirement:    run Setup.exe once (creates runtime\\ and the starter .exe files
 
 Programs are found automatically: every folder programs\\<program>\\ with a program.json (name, tab,
 description, version …); its "page" is the file with the program page (PAGE, optionally PROGRAM).
+A program that is only a script names "run" instead of "page" – it gets the shared page from script_page.py.
 Only the installed ones appear on the left (data\\installed.json, written by Setup.exe); they can be installed and
 removed in the settings under "Programs".
 Toolbox settings: data\\toolbox.json, errors: data\\logs\\toolbox.log (see storage.py).
@@ -46,6 +47,7 @@ PROGRAMS_DIR = ROOT / "programs"           # one folder per program lives here (
 sys.path.insert(0, str(APP_DIR))           # so that base, winutil etc. are found – also by the program pages
 
 import i18n  # noqa: E402
+import script_page  # noqa: E402
 import storage  # noqa: E402
 import winutil  # noqa: E402
 from base import (BAD, BAR, BORDER, CARD, GOOD, HOVER, MUTED, SELECTED, TEXT, Button, Buttons, Choice,  # noqa: E402
@@ -121,6 +123,10 @@ def find_tools(manifests):
     tools = []
     for manifest in manifests:
         try:
+            if "page" not in manifest:               # only a script ("run") – the shared page (script_page.py)
+                tools.append(ToolInfo(manifest["id"], display_text(manifest, "name"), manifest["category"],
+                                      display_text(manifest, "description"), script_page.page_for(manifest)))
+                continue
             file = manifest["folder"] / manifest["page"]
             spec = importlib.util.spec_from_file_location(file.stem, file)
             module = importlib.util.module_from_spec(spec)

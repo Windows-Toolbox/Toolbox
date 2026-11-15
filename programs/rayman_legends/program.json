@@ -1,0 +1,15 @@
+{
+  "id": "rayman_legends",
+  "name": "Rayman Legends",
+  "version": "1.0",
+  "category": "Games",
+  "description": "Starts Rayman Legends borderless at 2560×1440 – a setting Ubisoft never built into the game (rayman_legends).",
+  "run": "rayman_borderless.ps1",
+  "launch": "uplay://launch/410/0",
+  "options": {
+    "Pos": {
+      "values": ["Left", "Center", "Right"],
+      "default": "Center"
+    }
+  }
+}
