@@ -1,0 +1,42 @@
+[package]
+name = "toolbox-kit"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+description = "What the Windows Toolbox and its programs share: settings, pages, pipes, tray, texts."
+
+[features]
+# What a program links in. A build script asks for `build` alone (default-features = false), so that egui and
+# the Windows bindings are not compiled a second time just to write a manifest.
+default = ["runtime"]
+runtime = ["dep:egui", "dep:serde", "dep:windows-sys"]
+build = []
+
+[dependencies]
+serde_json.workspace = true
+serde = { workspace = true, optional = true }
+egui = { workspace = true, optional = true }
+windows-sys = { workspace = true, optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Gdi",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+egui = { workspace = true, features = ["default_fonts"] }
+egui_system_font_provider = "0.37.0"

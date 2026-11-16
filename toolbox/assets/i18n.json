@@ -1,0 +1,274 @@
+{
+  "category.General": {
+    "de": "Allgemein",
+    "en": "General"
+  },
+  "category.Games": {
+    "de": "Spiele",
+    "en": "Games"
+  },
+
+  "tray.open": {
+    "de": "Toolbox öffnen",
+    "en": "Open Toolbox"
+  },
+  "tray.settings": {
+    "de": "Einstellungen",
+    "en": "Settings"
+  },
+  "tray.quit": {
+    "de": "Beenden",
+    "en": "Quit"
+  },
+  "tray.quit.toolbox": {
+    "de": "Nur die Toolbox",
+    "en": "Only the Toolbox"
+  },
+  "tray.quit.all": {
+    "de": "Toolbox und alle Programme",
+    "en": "Toolbox and all programs"
+  },
+
+  "status.running": {
+    "de": "Läuft",
+    "en": "Running"
+  },
+  "status.stopped": {
+    "de": "Läuft nicht",
+    "en": "Not running"
+  },
+  "status.crashed": {
+    "de": "Abgestürzt",
+    "en": "Crashed"
+  },
+
+  "bar.running": {
+    "de": "Läuft: {running} von {all}",
+    "en": "Running: {running} of {all}"
+  },
+
+  "page.start": {
+    "de": "Starten",
+    "en": "Start"
+  },
+  "page.stop": {
+    "de": "Stoppen",
+    "en": "Stop"
+  },
+  "page.restart": {
+    "de": "Neu starten",
+    "en": "Restart"
+  },
+  "page.open_folder": {
+    "de": "Ordner öffnen",
+    "en": "Open folder"
+  },
+  "page.open_log": {
+    "de": "Protokoll öffnen",
+    "en": "Open log"
+  },
+  "page.readme": {
+    "de": "README",
+    "en": "README"
+  },
+  "page.remove": {
+    "de": "Von der Liste nehmen",
+    "en": "Remove from the list"
+  },
+  "page.remove.hint": {
+    "de": "Nimmt das Programm nur von der Liste der Toolbox. Sein Ordner bleibt, wie er ist; mit „Programm hinzufügen…“ kommt es wieder dazu.",
+    "en": "Only takes the program off the Toolbox's list. Its folder stays as it is; “Add program…” brings it back."
+  },
+  "page.missing": {
+    "de": "{file} fehlt.",
+    "en": "{file} is missing."
+  },
+  "page.missing.classic": {
+    "de": "{file} fehlt – starte einmal Setup.exe der klassischen Toolbox, sie erzeugt die Datei.",
+    "en": "{file} is missing – run Setup.exe of the classic Toolbox once; it creates the file."
+  },
+  "page.no_page": {
+    "de": "Das Programm hat seine Seite nicht geschickt. Einzelheiten stehen in seinem Protokoll (Ordner öffnen → data\\log.txt).",
+    "en": "The program did not send its page. Details are in its log (Open folder → data\\log.txt)."
+  },
+  "page.retry": {
+    "de": "Noch einmal versuchen",
+    "en": "Try again"
+  },
+
+  "classic.text": {
+    "de": "Dieses Programm gehört noch zur klassischen Toolbox (Python). Starten und Stoppen gehen von hier aus; seine Einstellungen zeigt bis zum Umbau die klassische Toolbox.",
+    "en": "This program still belongs to the classic Toolbox (Python). It can be started and stopped from here; until it is ported, its settings are shown by the classic Toolbox."
+  },
+  "classic.settings": {
+    "de": "Einstellungen (klassische Toolbox)",
+    "en": "Settings (classic Toolbox)"
+  },
+  "classic.opening": {
+    "de": "Die klassische Toolbox wird geöffnet …",
+    "en": "Opening the classic Toolbox …"
+  },
+
+  "welcome.title": {
+    "de": "Noch keine Programme",
+    "en": "No programs yet"
+  },
+  "welcome.text": {
+    "de": "Wähle den Ordner eines Programms – oder einen Ordner, in dem mehrere Programme liegen; dann kommen alle auf einmal dazu.",
+    "en": "Choose a program's folder – or a folder that holds several programs; then all of them are added at once."
+  },
+
+  "gear.title": {
+    "de": "Einstellungen der Toolbox",
+    "en": "Settings of the Toolbox"
+  },
+  "gear.look": {
+    "de": "Aussehen und Sprache",
+    "en": "Look and language"
+  },
+  "gear.theme": {
+    "de": "Farben",
+    "en": "Colours"
+  },
+  "gear.theme.dark": {
+    "de": "Dunkel",
+    "en": "Dark"
+  },
+  "gear.theme.light": {
+    "de": "Hell",
+    "en": "Light"
+  },
+  "gear.theme.system": {
+    "de": "Wie Windows",
+    "en": "Like Windows"
+  },
+  "gear.language": {
+    "de": "Sprache",
+    "en": "Language"
+  },
+  "gear.zoom": {
+    "de": "Größe {percent} %",
+    "en": "Size {percent} %"
+  },
+  "gear.zoom.reset": {
+    "de": "100 %",
+    "en": "100 %"
+  },
+  "gear.zoom.hint": {
+    "de": "Geht überall auch mit Strg + Mausrad oder Strg + Plus / Minus / 0. Sprache, Farben und Größe gelten auch für die Fenster der Programme.",
+    "en": "Works everywhere with Ctrl + mouse wheel or Ctrl + plus / minus / 0 as well. Language, colours and size also apply to the programs' own windows."
+  },
+  "gear.programs": {
+    "de": "Programme",
+    "en": "Programs"
+  },
+  "gear.programs.text": {
+    "de": "Die Toolbox zeigt die Programme, deren Ordner hier stehen. Ein Programm ist ein Ordner mit einer program.json; es kann liegen, wo du willst. Wählst du einen Ordner, in dem mehrere Programme liegen, kommen alle dazu.",
+    "en": "The Toolbox shows the programs whose folders are listed here. A program is a folder with a program.json; it may lie wherever you like. If you choose a folder that holds several programs, all of them are added."
+  },
+  "gear.add": {
+    "de": "Programm hinzufügen…",
+    "en": "Add program…"
+  },
+  "gear.add.title": {
+    "de": "Ordner eines Programms wählen (oder einen Ordner mit mehreren Programmen)",
+    "en": "Choose a program's folder (or a folder that holds several programs)"
+  },
+  "gear.conflict": {
+    "de": "„{name}“ steht schon auf der Liste – aus dem Ordner {listed}. Dasselbe Programm kann nur einmal auf der Liste stehen. Soll stattdessen {new} gelten?",
+    "en": "“{name}” is on the list already – from the folder {listed}. The same program can be on the list only once. Use {new} instead?"
+  },
+  "gear.conflict.keep": {
+    "de": "Beim bisherigen bleiben",
+    "en": "Keep the listed one"
+  },
+  "gear.conflict.replace": {
+    "de": "Den neuen Ordner nehmen",
+    "en": "Use the new folder"
+  },
+  "gear.problem.not_found": {
+    "de": "Ordner oder program.json nicht gefunden",
+    "en": "folder or program.json not found"
+  },
+  "gear.problem.broken": {
+    "de": "program.json ist nicht lesbar: {why}",
+    "en": "program.json cannot be read: {why}"
+  },
+  "gear.problem.same_id": {
+    "de": "dasselbe Programm wie „{name}“, das schon auf der Liste steht",
+    "en": "the same program as “{name}”, which is on the list already"
+  },
+  "gear.tray": {
+    "de": "Symbol in der Taskleiste",
+    "en": "Icon in the taskbar"
+  },
+  "gear.tray.text": {
+    "de": "Die Toolbox sitzt als Symbol neben der Uhr: Linksklick öffnet dieses Fenster, Rechtsklick zeigt alle Programme. Windows 11 versteckt neue Symbole zuerst hinter dem Pfeil ^. Ziehe das Symbol von dort in die Taskleiste – oder schalte es in den Windows-Einstellungen unter „Weitere Taskleistensymbole“ ein. Nach dem Verschieben des Toolbox-Ordners musst du das einmal wiederholen.",
+    "en": "The Toolbox sits as an icon next to the clock: a left click opens this window, a right click shows all programs. Windows 11 first hides new icons behind the arrow ^. Drag the icon from there into the taskbar – or switch it on in the Windows settings under “Other system tray icons”. After moving the Toolbox's folder you have to do that once more."
+  },
+  "gear.tray.open": {
+    "de": "Windows-Einstellungen öffnen",
+    "en": "Open Windows settings"
+  },
+  "gear.toolbox": {
+    "de": "Toolbox",
+    "en": "Toolbox"
+  },
+  "gear.version": {
+    "de": "Windows Toolbox {version}. Das Fenster zu schließen beendet nichts – die Toolbox und die Programme laufen weiter.",
+    "en": "Windows Toolbox {version}. Closing the window ends nothing – the Toolbox and the programs keep running."
+  },
+  "gear.quit": {
+    "de": "Toolbox beenden",
+    "en": "Quit the Toolbox"
+  },
+  "gear.quit.all": {
+    "de": "Toolbox und alle Programme beenden",
+    "en": "Quit the Toolbox and all programs"
+  },
+
+  "toast.zoom": {
+    "de": "Größe {percent} %",
+    "en": "Size {percent} %"
+  },
+  "toast.added": {
+    "de": "Hinzugefügt: {names}",
+    "en": "Added: {names}"
+  },
+  "toast.known": {
+    "de": "Steht schon auf der Liste.",
+    "en": "Already on the list."
+  },
+  "toast.conflict": {
+    "de": "Dieses Programm steht schon auf der Liste – aus einem anderen Ordner.",
+    "en": "This program is on the list already – from another folder."
+  },
+  "toast.nothing_found": {
+    "de": "In diesem Ordner und eine Ebene darunter liegt kein Programm (keine program.json).",
+    "en": "There is no program in this folder or one level below it (no program.json)."
+  },
+  "toast.broken": {
+    "de": "Nicht lesbar: {why}",
+    "en": "Cannot be read: {why}"
+  },
+  "toast.did_not_start": {
+    "de": "{name} konnte nicht gestartet werden: {why}",
+    "en": "{name} could not be started: {why}"
+  },
+  "toast.no_starter": {
+    "de": "{name}: Die Start-Datei fehlt – starte einmal Setup.exe der klassischen Toolbox.",
+    "en": "{name}: its starter is missing – run Setup.exe of the classic Toolbox once."
+  },
+  "toast.declined": {
+    "de": "{name} braucht Administratorrechte – die Nachfrage von Windows wurde abgelehnt.",
+    "en": "{name} needs admin rights – the question Windows asked was declined."
+  },
+  "toast.did_not_stop": {
+    "de": "{name} hat sich nicht beenden lassen.",
+    "en": "{name} could not be stopped."
+  },
+  "toast.no_classic": {
+    "de": "Die klassische Toolbox ließ sich nicht öffnen.",
+    "en": "The classic Toolbox could not be opened."
+  }
+}

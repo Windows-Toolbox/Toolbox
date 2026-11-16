@@ -25,3 +25,7 @@ programs/*/lhm/
 # --- Claude Code (local only) ---
 CLAUDE.md
 .claude/
+
+# --- Rust: build folder and the installed programs (created by cargo and build.ps1) ---
+target/
+dist/

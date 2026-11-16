@@ -1,0 +1,34 @@
+{
+  "page.readings": {
+    "de": "Messwerte",
+    "en": "Readings"
+  },
+  "page.reading": {
+    "de": "Wert {value} (Messung {count})",
+    "en": "Value {value} (reading {count})"
+  },
+  "page.stopped": {
+    "de": "Gestoppt – es wird nichts gemessen",
+    "en": "Stopped – nothing is measured"
+  },
+  "page.rate": {
+    "de": "Messen alle",
+    "en": "Measure every"
+  },
+  "page.warn_hot": {
+    "de": "Ab 60 warnen",
+    "en": "Warn from 60"
+  },
+  "page.reset": {
+    "de": "Zähler zurücksetzen",
+    "en": "Reset counter"
+  },
+  "status.value": {
+    "de": "Wert {value}",
+    "en": "Value {value}"
+  },
+  "toast.reset": {
+    "de": "Zähler zurückgesetzt",
+    "en": "Counter reset"
+  }
+}

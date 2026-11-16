@@ -1,6 +1,6 @@
 # Windows Toolbox in Rust – design
 
-Status: **M0 (prototype) done** (section 11); M1 is next. It describes where the Toolbox
+Status: **M1 (kit + new Toolbox next to the old one) built** (section 11); its hand test and M2 are next. It describes where the Toolbox
 should end up, why, and in which order to get there without ever having a broken Toolbox in between. The fixed
 formats are in section 15.
 
@@ -126,11 +126,13 @@ Toolbox/                        this repo (GitHub: Windows-Toolbox/Toolbox)
 ├─ README.md
 ├─ DESIGN.md
 ├─ Cargo.toml                   lists the crates below so one command builds them (Cargo.lock: pinned versions, written by cargo)
+├─ .cargo/config.toml           the Visual C++ runtime is linked in (section 9)
 ├─ build.ps1                    release build → dist\ (the trick from Last Bastion: a running exe is renamed aside)
-├─ release.ps1                  build + zip + GitHub release (section 9)
+├─ release.ps1                  build + zip + GitHub release (section 9; comes with M3)
 ├─ kit/                         toolbox-kit: what programs and the Toolbox share (section 5)
 ├─ toolbox/                     the Toolbox → Toolbox.exe   (src\, assets\: icon and i18n.json, compiled in)
-├─ template/                    copy this folder to start a new program
+├─ demo/                        Kit Demo: the smallest kit program – the kit's tests talk to it (section 13)
+├─ template/                    copy this folder to start a new program (comes with M3)
 └─ dist/                        (ignored) Toolbox.exe + data\ with its settings.json and log.txt
 ```
 
@@ -586,11 +588,16 @@ through macroquad instead, which redraws every frame – right for a game, wrong
 - **eframe features**: `default-features = false`, then `glow`, `default_fonts`, `system_fonts`, `clipboard`,
   `links`, `accesskit`.
 - **Theme** in `kit::ui::theme(ctx)`, applied by every window – the editor's `style()` carried over: egui's dark
-  visuals, text sizes 12 / 15 / 15 / 19 / 14 (small / body / button / heading / monospace). Colours for good / bad /
-  warn and the green accent from today's `base.py` come along as constants. Light/dark/system and the zoom are
-  settings of the Toolbox; programs receive them in `hello` (4.3) and use them for their own windows.
-- **Layout** of the Toolbox window is what the editor already does: `TopBottomPanel` (category tabs, gear),
-  `SidePanel` (programs of the tab), `CentralPanel` (the page), bottom bar (link target on hover, toasts).
+  visuals, text sizes 12 / 15 / 15 / 19 / 14 (small / body / button / heading / monospace). What is chosen is
+  egui's own blue, as in the editor; headings are blue too (`ACCENT`, a lighter tone of it). Colours for good /
+  bad / warn come along as constants. Light/dark/system and the zoom are settings of the Toolbox; programs
+  receive them in `hello` (4.3) and use them for their own windows.
+- **The editor's building blocks** are in the kit, for the Toolbox and for every program's own window:
+  `heading` (a page's title), `section` (a blue heading that folds shut with a click, its content indented –
+  what a page's `section` block is drawn with), `hint` (small grey text), `bar_button` (the module bar's buttons).
+- **Layout** of the Toolbox window is what the editor already does: a bar at the top like its module bar
+  (category tabs, on the right "Settings"), `SidePanel` (programs of the tab), `CentralPanel` (the page), and a
+  status line at the bottom (left: link target on hover, toasts; right: how many programs run, size, version).
 - Solved along the way: the Tk scroll stripes (egui scrolls by redrawing, there is nothing to smear), zoom
   (`Ctrl` + wheel is built in), DPI scaling, tooltips. The planned PySide6 port is no longer needed.
 - **Symbols**: egui 0.37's own fonts lack `●`, `✓` and `▸` (its emoji fonts are an extra feature and still lack
@@ -605,8 +612,10 @@ through macroquad instead, which redraws every frame – right for a game, wrong
 
 **Agent (background)** – started by the first double-click, or with Windows if that is switched on (Run key):
 the one tray icon with every program's menu and status (section 6), pipe `windows-toolbox.toolbox`
-(`show [id]`, `quit`, starting and stopping scripts – 4.2). No timers – it sleeps until a click or a message from
-a program arrives.
+(`show [id]`, `quit`, starting and stopping scripts – 4.2). It sleeps until a click or a message from a program
+arrives. Kit programs push their status. What cannot report by itself – a script (its job), a plain exe (its
+process), a Python program (its port) – is looked at when it is needed: when the tray menu opens, and once a
+second while a window is open. With the window closed there is no timer at all.
 
 **Crashes.** The agent is connected to every running kit program anyway. If such a pipe closes without a `bye`
 (4.3), the program did not end on purpose: its entry shows "crashed" with a link to its `log.txt` (the kit writes
@@ -882,13 +891,41 @@ whole chain as an automated test without a window: workers off → `set` pushed 
 written to the file once, after the drag → an invalid value refused with a toast → a second start hands `start`
 to the running process → `quit`. How the slider feels by hand is part of the open hand test.
 
-**M1 – Kit + new Toolbox, next to the old one.** `kit\` (`app`, `settings`, `ui`, `i18n`, `ipc`, `tray`,
-`manifest`, `page`) and `toolbox\src\` in this repo, `Toolbox.exe` with library, page display, script page, tray
-menu, **Add program…**. The Python programs are added from their current folders and appear as
-they are: started through their existing starters, status through their existing ports (the kit's IPC client
-understands the old `"port"` field until the last Python program is gone). Their "Settings" button opens the **old**
-Toolbox on that page – the `show <id>` command it already has. The old Toolbox is kept as `ToolboxClassic.exe`.
+**M1 – Kit + new Toolbox, next to the old one – built 2026-11-16.** Checked on the real PC: the window and
+the tray entry (by hand); stopping and starting a Python program, the classic settings, a script's option and
+adding a program (the window's messages sent to the running agent – the buttons themselves were not each clicked). `kit\` (`app`, `settings`,
+`ui`, `i18n`, `ipc`, `tray`, `manifest`, `page`, `process`, `proto`, the build helper) and `toolbox\src\` in this
+repo, `Toolbox.exe` with library, page display, script page, tray menu, **Add program…**. The Python programs are
+added from their current folders and appear as they are: started through their existing starters, status through
+their existing ports (the kit's IPC client understands the old `"port"` field until the last Python program is
+gone). Their "Settings" button opens the **old** Toolbox on that page – the `show <id>` command it already has.
 The Python programs keep their own tray icons until they are ported; the single icon fills up program by program.
+
+What M1 showed or settled:
+
+- **The two Toolboxes do not meet.** The new one is built into `dist\Toolbox.exe`; the old one stays exactly
+  where and what it is – `Toolbox.exe` in the main folder with its shortcuts, its autostart and the ⚙ of the
+  Hardware Monitor pointing to it. So nothing had to be renamed to `ToolboxClassic.exe`; the new Toolbox looks
+  for that name first and for `Toolbox.exe` second, should a later step rename it.
+- **First start next to the old Toolbox**: language, look and the installed programs are carried over once
+  (`data\toolbox.json`, `data\installed.json`), so the new window opens with everything in it.
+- **A script still lying in the old layout** (Rayman until M2) is started the way the old page did it – its
+  options as arguments (`-Pos Left`) – and its option file is the old `data\<id>.json`. A script in the new layout
+  gets no arguments and reads its own `data\settings.json` (15.3).
+- **Window and agent talk over the agent's pipe.** The agent holds the list of programs and everything known
+  about them and sends it to the window on every change; the window sends back what the user did. These messages
+  are private to `Toolbox.exe` (15.1).
+- **Still to come, each with the milestone that needs it**: "Start with Windows" and "Restart after a crash" (M3,
+  with `kit::autostart`), Update and **Get programs** (M3), Set up / Uninstall (M4), an "Open" entry for a
+  program's own window in the tray menu (M4), export / import, Start menu shortcut, clean up (M5). The gear holds
+  look and language, the list of programs, the tray icon's instructions and Quit.
+- **A window's icon**: eframe puts egui's own icon over ours one frame after the window appears. `kit::ui::viewport`
+  hands eframe an empty icon, which makes it leave the window alone; `use_program_icon` then sets the one
+  compiled into the exe.
+- **Tests**: 47, all without a window – among them the agent in a sandbox, talked to the way the window does
+  (a script from add to remove; a kit program followed, crashed, followed again), and every page of the window
+  drawn into memory (section 13).
+- **Size**: `Toolbox.exe` 8.6 MB, Kit Demo (no window) 0.7 MB – release build.
 
 **M2 – Rayman + Last Bastion.** Rayman moves into its own folder (two files) and proves the script page;
 Last Bastion gets its `program.json`. First two programs outside this repo that no longer need the classic
@@ -969,12 +1006,20 @@ parts that matter are data:
   every program).
 - **Symbols**: every symbol the pages use (`●○⚠⚒⚙✓▸°·…`) is found in egui's fonts or the Windows fonts – an egui
   context without a window, with the system font provider, asked per character.
-- **Off-screen when a window is needed** (measurements, a screenshot): the internal environment variable
-  `M0_OFFSCREEN` put the window at −20000/−20000, without taskbar entry and never activated; `PrintWindow`
-  captured it. Scaling is not trustworthy there (no monitor) – a drawing check at real scale stays a hand test.
+- **A sandbox for everything that starts a process**: the internal environment variable `TOOLBOX_SANDBOX` gives
+  every name Windows knows (pipes, jobs) a suffix, shows no tray icon and no message box, and puts a window off
+  the screen; `TOOLBOX_DATA_DIR_<ID>` gives one program another data folder. So a test never meets the Toolbox or
+  the programs that are really in use. A test that waits for an answer has a time limit – a wrong expectation
+  must fail, not hang.
+- **Off-screen when a window is needed** (measurements, a screenshot): in the sandbox, or with the internal
+  environment variable `TOOLBOX_OFFSCREEN`, the window lies at −20000/−20000, without taskbar entry and never
+  activated; `PrintWindow` captures it. Scaling is not trustworthy there (no monitor) – a drawing check at real
+  scale stays a hand test.
 - **Setup steps**: each step's "already done?" check runs without changing anything.
-- **The drawing itself** is the small rest. egui can draw into memory instead of a window; whether that is worth
-  using is decided when the first drawing bug shows up, not before.
+- **The drawing itself**: egui draws into memory instead of a window. The Toolbox's whole frame – every kind of
+  program, the gear, the empty library, dark and light – is drawn that way in one test; it catches a crash in
+  drawing code and checks what the window chooses by itself (page, tab). Whether it *looks* right stays a hand
+  test. (Mouse messages posted to an off-screen window do not arrive as clicks – M1 tried.)
 
 All of it runs with `cargo test`, without admin rights and without a window.
 
@@ -1065,6 +1110,10 @@ A slider's `set` carries a float; an integer field accepts it when it is whole.
 | `started` | `id` | a program announces itself when it starts its workers; the agent then connects to it like to every running program (no polling, section 6) |
 | `quit` | `all` (bool, optional) | end the agent – with `all`, every background program first |
 
+The Toolbox's own window uses the same pipe for more (`window`, `add`, `start`, … and the agent's answers
+`library`, `toast`, …; `toolbox\src\talk.rs`). Those messages are **private to `Toolbox.exe`**: window and agent
+are always the same build, so they may change with any version and no program may rely on them.
+
 ### 15.2 Building blocks of a page
 
 Every block is an object with a `type`. A `key` is a field of the program's settings struct; `value` is its current
@@ -1072,7 +1121,7 @@ value, filled in by the kit.
 
 | `type` | Fields | Drawn as |
 |---|---|---|
-| `section` | `title`, `blocks` (list) | heading, then its blocks |
+| `section` | `title`, `blocks` (list) | blue heading that folds shut with a click, then its blocks, indented |
 | `text` | `text` | a paragraph |
 | `status` | `text`, `state` (`ok`/`warn`/`bad`) | a line with a coloured `●` |
 | `switch` | `label`, `key`, `value` (bool) | a checkbox; sends `set` with true/false |
@@ -1091,7 +1140,7 @@ here when they are built: `combo`, `entry`, `tabs`, `table`, `graph`, `canvas`.
 | `name`, `description`, `category` | text | all | text = a string or `{"de": "…", "en": "…"}`; a missing language falls back to `en`, then to the first one |
 | `version` | string | all | |
 | `exe` | path relative to the manifest | external exe, kit program | what Start/Play runs |
-| `run` | path of a `.ps1` relative to the manifest | script | started hidden by the agent: `powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <run>`, in its job (4.2) |
+| `run` | path of a `.ps1` relative to the manifest | script | started hidden by the agent: `powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <run>`, in its job (4.2), in the manifest's folder. Other script types are refused with a message. |
 | `launch` | URL or path | script | opened after `run` was started (Rayman: `uplay://…`) |
 | `options` | `{"<name>": {"values": [...], "default": …, "label": text, "value_labels": {"<value>": text}}}` | script | shown as `choice` blocks; written to the script's `data\settings.json` as `{"<name>": value}`, which the script reads (today `data\rayman_legends.json` in the Toolbox) |
 | `hint`, `button` | text | script | explanation above the options; label of the start button (default "Start") |
@@ -1139,11 +1188,16 @@ category = { de = "Allgemein", en = "General" }
 background = true
 name = { de = "Hardware-Monitor", en = "Hardware Monitor" }
 description = { de = "…", en = "…" }                # optional, overrides [package].description
+button = { de = "Spielen", en = "Play" }            # optional: label of the start button (default "Start")
+icon = "assets/icon.ico"                            # optional: this is the default; without the file, no icon
+dist = "dist"                                       # optional: this is the default; where build.ps1 installs
 ```
 
-The kit's build helper (`kit::build::manifest()` in `build.rs`) reads this, adds `protocol` and `update_key` from the
-kit, embeds the manifest in the exe and writes `program.json` next to the build output; `build.ps1` copies it into
-`dist\`. The same build script compiles the resource with name, icon and description for Task Manager.
+The kit's build helper (`kit::build::manifest()` in `build.rs`) reads this (through `cargo metadata`, so the kit
+needs no TOML reader), adds `protocol` – and, from M3 on, `update_key` – from the kit, embeds the manifest in the
+exe and writes it next to the build output as `<package>.program.json` (several programs may share one build
+folder); `build.ps1` copies it into `dist\` as `program.json`. The same build script puts the resource with name,
+icon and version into the exe, for Task Manager and the taskbar.
 
 ### 15.5 `programs.json` ("Get programs")
 
@@ -1179,26 +1233,29 @@ In this repo's root, with `programs.json.sig` next to it (15.6). Loaded from
 
 ### 15.7 Kit modules – public functions
 
-Names and shapes M1 starts from. Modules marked *M0* exist in the prototype in this form; the others are fixed when
-they are built and written back here.
+Modules marked *M1* exist in `kit\src\` in this form; the others are fixed when they are built and written back
+here.
 
 | Module | Public functions |
 |---|---|
-| `app` *(M0)* | `trait Program { type Settings; const ID; const VERSION; fn page(&self, &mut page::Builder, &Settings); fn status(&self, running: bool) -> Status; fn tray(&self) -> Tray; fn applied(&mut self, &Settings); fn action(&mut self, &str) -> Option<String> }` · `run(program, worker)` – role, single instance, pipe, settings, delayed saving · `Runtime::{changed, running, with}` · `data_dir()` · `log(msg)` |
-| `settings` *(M0)* | `Settings::<T>::load(path)` – missing fields default, invalid ones fall back one by one, unknown ones kept · `.value` · `.save()` (written aside, then renamed) |
-| `page` *(M0)* | `Page { blocks }` · `Block` (15.2) · `Builder::{section, text, status, switch, slider, choice, buttons, finish}` · `apply_set(&settings, key, value) -> Result<T, String>` · `check_keys::<Settings>(page)` for the test |
-| `proto` *(M0)* | `Command`, `State`, `Status`, `Health`, `Tray`, `MenuEntry`, `ToolboxHello`, `Want`, `PROTOCOL` – the messages of 15.1 as serde types |
-| `ipc` *(M0)* | `pipe_name(id)` · `Server::bind(id)` (`AlreadyExists` = runs already) · `Server::accept()` · `connect(id)` · `exists(id)` · `Conn::{send, send_line, read_line, close}` |
-| `ui` *(M0)* | `theme(ctx)` · `PageView::show(ui, &Page) -> Vec<Command>` · `ACCENT`, `GOOD`, `WARN`, `BAD`, `health_color()` |
-| `tray` *(M0)* | `create(handler) -> Waker` · `run_loop()` · `Tray::{set_icon(uid, text, color, tip), remove_icon, quit}` · `text_icon(text, color)` · `Event`, `Item` |
-| `process` *(M0: `Job`)* | `Job::{create, open, spawn, active_processes, terminate}` · `spawn_hidden(cmd)` · `run_task(name)` · `efficiency_mode()` |
-| `i18n` | `t!("id")` · `set_language(lang)` · `check_ids()` for the test |
+| `lib` *(M1)* | `PROTOCOL` · `Meta { id, version, dist, manifest }` · `meta!()` – the program's facts from its `Cargo.toml`, through its build script |
+| `app` *(M1)* | `trait Program { type Settings; const META; fn page(&self, &mut page::Builder, &Settings); fn status(&self, running: bool) -> Status; fn tray(&self) -> Tray; fn applied(&mut self, &Settings); fn action(&mut self, &str) -> Option<String>; fn show(&mut self); fn shutdown(&mut self) }` · `run(program, worker)` – role, single instance, pipe, settings, delayed saving · `Runtime::{changed, running, wait_running, with, update, look}` · `init(&meta)` – first thing in every exe: application id, data folder, panic → log · `data_dir()` · `program_dir()` · `log(msg)` · `message_box(title, text, error)` · `Look { language, theme, zoom }` · `WORKERS_OFF` · `data_dir_variable(id)` for tests |
+| `settings` *(M1)* | `Settings::<T>::load(path)` – missing fields default, invalid ones fall back one by one, unknown ones kept · `.value` · `.existed` · `.save()` (written aside, then renamed) · `extra(key)` / `set_extra(key, value)` – a value next to the struct's fields |
+| `page` *(M1)* | `Page { blocks }` · `Block` (15.2) · `Builder::{section, text, status, switch, slider, choice, buttons, finish}` · `apply_set(&settings, key, value) -> Result<T, String>` · `check_keys::<Settings>(page)` for the test |
+| `proto` *(M1)* | `Command`, `State`, `Status`, `Health`, `Tray`, `MenuEntry`, `Live`, `ToolboxHello`, `Want`, `AgentCommand`, `PROTOCOL` – the messages of 15.1 as serde types |
+| `ipc` *(M1)* | `pipe_name(id)` · `Server::bind(id)` (`AlreadyExists` = runs already) · `Server::accept()` · `connect(id)` · `connect_wait(id, timeout)` · `exists(id)` · `Conn::{send, send_line, read, read_line, close}` · `TOOLBOX` · `sandbox()` · `legacy::{listening(port), command(port, text, timeout)}` – the Python programs' ports, until the last one is ported |
+| `ui` *(M1)* | `theme(ctx, theme, zoom)` · `THEMES` · `PageView::show(ui, &Page) -> Vec<Command>` · `Toast::{show, ui}` · `link_target(&response, target)` / `hovered_target(ctx)` – the bottom bar · `viewport(title)` – how every window starts out · `use_program_icon()` · `no_window(title, error)` – the message when OpenGL is missing · `heading(ui, text)` · `section(ui, title, salt, add)` · `hint(ui, text)` · `bar_button(ui, text, chosen)` – the editor's building blocks · `ACCENT`, `GOOD`, `WARN`, `BAD`, `accent()`, `good()`, `warn()`, `bad()`, `muted()`, `health_color()` |
+| `tray` *(M1)* | `create(handler) -> Waker` · `run_loop()` · `Tray::{set_icon(uid, Icon, tip), remove_icon, quit}` – setting what an icon shows already costs nothing · `Icon::{Program, Text(text, color)}` · `program_icon(size)` · `text_icon(text, color)` · `Event`, `Item` |
+| `process` *(M1)* | `Job::{create, open, spawn, active_processes, terminate}` · `job_name(id)` · `spawn(exe, args)` – without a console window · `open(target)` – a file, a folder, an address · `run_elevated(exe)` · `wait_exit(pid, timeout)` · `running(exe) -> pids` · `quote(arg)`. Still to come: `run_task(name)`, `efficiency_mode()` (M4) |
+| `i18n` *(M1)* | `t!("id")`, `t!("id", name = value)` · `texts!()` – loads the program's `assets\i18n.json` · `LANGUAGES` · `set_language(lang)` · `language()` · `system_language()` · `check_ids(crate_dir)` for the test |
+| `manifest` *(M1)* | `Manifest::read(folder)` (`dist\program.json`, else `program.json`) · `Manifest::find(folder)` – the folder or one level below it · `Manifest::kind() -> Script/Kit/Exe/Classic` · `Text::{get(lang), key()}` · `ScriptOption` |
+| `build` *(M1)* | `build::manifest()` for `build.rs` (15.4): `program.json`, the facts for `meta!()`, and the resource with icon, name and version – written by hand as a `.res` file, so no resource compiler has to be installed |
 | `autostart` | `state(id) -> Off/On/DisabledByWindows` · `set(id, on)` · `repair(id)` |
-| `manifest` | `Manifest::read(folder)` (`dist\program.json`, else `program.json`) · `Text::get(lang)` · `build::manifest()` for `build.rs` |
 | `update` | `latest(repository) -> Option<Release>` · `install(release, folder, key)` |
 | `setup` | `steps![…]` · `Step::{Winget, Download, Copy, Task}` · `pending() -> Vec<Step>` · `run(steps)` |
 
 **Crates used in M0** (looked up 2026-11-15): `eframe` / `egui` 0.37.0 (features in section 7),
 `egui_system_font_provider` 0.37.0 (through eframe's `system_fonts`), `windows-sys` 0.61.2, `serde` 1.0.229,
-`serde_json` 1.0.154; Rust 1.99.0, edition 2024. For later milestones, to be looked up again when used:
+`serde_json` 1.0.154; Rust 1.99.0, edition 2024. Added in M1 (looked up 2026-11-16): `rfd` 0.18.0 – the folder
+dialog of **Add program…**; only the Toolbox uses it. For later milestones, to be looked up again when used:
 `ed25519-dalek` (3.0.0 at the time of M0), an HTTPS client for updates and Discord Plus' login.

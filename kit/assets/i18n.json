@@ -1,0 +1,10 @@
+{
+  "kit.page.newer_toolbox": {
+    "de": "Dieser Teil der Seite braucht eine neuere Toolbox.",
+    "en": "This part of the page needs a newer Toolbox."
+  },
+  "kit.no_opengl": {
+    "de": "Das Fenster kann nicht geöffnet werden: Dieser PC hat kein nutzbares OpenGL. Installiere den Grafiktreiber deiner Grafikkarte und starte das Programm noch einmal.\n\nEinzelheiten: {error}",
+    "en": "The window cannot be opened: this PC has no usable OpenGL. Install the driver of your graphics card and start the program again.\n\nDetails: {error}"
+  }
+}
