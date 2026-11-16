@@ -27,7 +27,7 @@ import uuid
 PIPE = r"\\.\pipe\discord-ipc-{}"
 TOKEN_URL = "https://discord.com/api/oauth2/token"
 # Ohne eigenen User-Agent blockt Cloudflare vor discord.com Anfragen von Python manchmal ab
-USER_AGENT = "windows-toolbox discord_plus (https://github.com/ItsMaxxx/windows-toolbox, 1.0)"
+USER_AGENT = "windows-toolbox discord_plus (https://github.com/Windows-Toolbox/Toolbox, 1.0)"
 SCOPES = ["rpc", "identify"]
 
 HANDSHAKE, FRAME, CLOSE, PING, PONG = range(5)

@@ -13,8 +13,8 @@
     "en": "Game folder"
   },
   "page.folder.hint": {
-    "de": "Last Bastion hat ein eigenes Repository, getrennt von der Toolbox. Klone es z. B. nach „last-bastion“ neben den Toolbox-Ordner – dann findet diese Seite es von selbst. Liegt es woanders, wähle den Ordner hier aus.",
-    "en": "Last Bastion has its own repository, separate from the toolbox. Clone it e.g. to \"last-bastion\" next to the toolbox folder – then this page finds it by itself. If it's somewhere else, choose the folder here."
+    "de": "Last Bastion hat ein eigenes Repository, getrennt von der Toolbox. Klone es z. B. nach „Last Bastion“ neben den Toolbox-Ordner – dann findet diese Seite es von selbst. Liegt es woanders, wähle den Ordner hier aus.",
+    "en": "Last Bastion has its own repository, separate from the toolbox. Clone it e.g. to \"Last Bastion\" next to the toolbox folder – then this page finds it by itself. If it's somewhere else, choose the folder here."
   },
   "page.folder.ok": {
     "de": "Gefunden: {path}",

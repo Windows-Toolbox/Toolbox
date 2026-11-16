@@ -126,7 +126,7 @@ Toolbox/                        this repo (GitHub: Windows-Toolbox/Toolbox)
 ├─ README.md
 ├─ DESIGN.md
 ├─ Cargo.toml                   lists the crates below so one command builds them (Cargo.lock: pinned versions, written by cargo)
-├─ build.ps1                    release build → dist\ (the trick from last-bastion: a running exe is renamed aside)
+├─ build.ps1                    release build → dist\ (the trick from Last Bastion: a running exe is renamed aside)
 ├─ release.ps1                  build + zip + GitHub release (section 9)
 ├─ kit/                         toolbox-kit: what programs and the Toolbox share (section 5)
 ├─ toolbox/                     the Toolbox → Toolbox.exe   (src\, assets\: icon and i18n.json, compiled in)
@@ -706,7 +706,7 @@ Discord Plus, scripts) have no such button.
 ### Building (developer PC)
 
 Each repo has the same small `build.ps1`: `cargo build --release` → copies the exe and the generated
-`program.json` into its `dist\` (the running-exe rename trick from last-bastion's `build.ps1`; it never deletes
+`program.json` into its `dist\` (the running-exe rename trick from Last Bastion's `build.ps1`; it never deletes
 `dist\`, section 3). Requirement: Rust, already installed.
 
 Two settings are the same in every repo and come with `template\`:

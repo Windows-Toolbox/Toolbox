@@ -5,8 +5,8 @@ getrennt von der Toolbox. Das Spiel, sein Design-Dokument (`DESIGN.md`) und die 
 
 Hier in der Toolbox liegt nur die **Seite** im Tab „Games“:
 
-- **Spielordner:** Ohne Auswahl sucht die Seite `last-bastion` neben dem Toolbox-Ordner (z. B.
-  `E:\Software\last-bastion`). Liegt das Spiel woanders, merkt sich „Spielordner wählen“ den Ordner in
+- **Spielordner:** Ohne Auswahl sucht die Seite `Last Bastion` neben dem Toolbox-Ordner (z. B.
+  `E:\Software\Windows Toolbox\Last Bastion`). Liegt das Spiel woanders, merkt sich „Spielordner wählen“ den Ordner in
   `data\last_bastion.json` („game_folder“).
 - **Design-Dokument öffnen:** öffnet `DESIGN.md` aus dem Spielordner.
 - **Spielen:** startet `dist\LastBastion.exe` aus dem Spielordner.
@@ -25,7 +25,8 @@ Pfade im Spiel-Repo, auf die sich die Seite verlässt (Abmachung, siehe `DESIGN.
 
 ## Einrichten
 
-1. Spiel-Repo klonen, am einfachsten neben die Toolbox: `E:\Software\last-bastion`.
+1. Spiel-Repo klonen, am einfachsten neben die Toolbox, also im Ordner darüber (z. B. `E:\Software\Windows Toolbox`):
+   `git clone https://github.com/Windows-Toolbox/Last-Bastion.git "Last Bastion"`.
 2. In der Toolbox auf das Zahnrad → bei **Last Bastion** auf **Installieren**. Die Seite erscheint im Tab „Games“.
 
 ## Stand

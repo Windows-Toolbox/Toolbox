@@ -60,7 +60,7 @@ MANIFEST = json.loads((APP_DIR / "program.json").read_text(encoding="utf-8"))   
 VERSION = MANIFEST["version"]
 SETTINGS_FILE = storage.settings_file("toolbox")
 ICON_FILE = APP_DIR / "toolbox.ico"        # blue toolbox – the programs have program.ico (⚒ on green)
-GITHUB_URL = "https://github.com/ItsMaxxx/windows-toolbox"     # button "Windows Toolbox" at the top left
+GITHUB_URL = "https://github.com/Windows-Toolbox/Toolbox"     # button "Windows Toolbox" at the top left
 # Created by Setup.exe: pythonw.exe with the name "Toolbox" and its own icon (for the Task Manager). The starter
 # Toolbox.exe in the main folder starts this one too; for the restart it goes directly, without the detour.
 TOOLBOX_EXE = ROOT / "runtime" / "Toolbox.exe"

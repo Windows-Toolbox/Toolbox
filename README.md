@@ -1,4 +1,4 @@
-# windows-toolbox
+# Windows Toolbox
 
 Sammlung kleiner, selbst geschriebener Windows-Tools mit einer gemeinsamen Oberfläche (Toolbox).
 
@@ -79,7 +79,7 @@ Zum Sichern oder Umziehen der Einstellungen reicht `data/`.
 ## Einrichtung
 
 ```
-git clone https://github.com/ItsMaxxx/windows-toolbox.git
+git clone https://github.com/Windows-Toolbox/Toolbox.git
 ```
 Danach **Doppelklick auf `Setup.exe`** – sonst ist nichts nötig, nicht einmal ein installiertes Python. `Setup.exe`
 öffnet ein Konsolenfenster und führt darin `setup\setup.ps1` aus (eine `.ps1` direkt doppelzuklicken würde sie nur im

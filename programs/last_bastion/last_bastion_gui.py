@@ -2,7 +2,7 @@
 Last Bastion page in the toolbox GUI (building blocks from toolbox/base.py).
 
 The game has its own git repository, separate from the toolbox – this page only knows where it is on this PC: the
-folder chosen here (data\\last_bastion.json, "game_folder"), otherwise last-bastion next to the toolbox folder.
+folder chosen here (data\\last_bastion.json, "game_folder"), otherwise "Last Bastion" next to the toolbox folder.
 From there it opens DESIGN.md and starts dist\\LastBastion.exe (the agreement with the game repo, see its DESIGN.md,
 section 12.7). The page is all there is in the toolbox – no script, no starter.
 All texts live in i18n.json – only their IDs are here: t("page.…") (see toolbox\\i18n.py).
@@ -16,7 +16,7 @@ import i18n
 from base import BAD, GOOD, MUTED, Button, Buttons, Section, Text, ToolPage
 
 FOLDER = Path(__file__).resolve().parent
-DEFAULT_GAME_FOLDER = FOLDER.parents[2] / "last-bastion"     # next to the toolbox folder, e.g. E:\Software\last-bastion
+DEFAULT_GAME_FOLDER = FOLDER.parents[2] / "Last Bastion"     # next to the toolbox folder, e.g. E:\Software\Windows Toolbox\Last Bastion
 t = i18n.Texts(FOLDER / "i18n.json")
 
 # Paths inside the game repo – keep them in line with its DESIGN.md (12.7)

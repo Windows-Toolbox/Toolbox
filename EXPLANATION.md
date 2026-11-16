@@ -101,7 +101,7 @@ ist der Ordner „portabel“: verschieben, `Einrichten.cmd` erneut ausführen, 
 ## 2. Ordner und Dateien
 
 ```
-windows-toolbox\
+Toolbox\                   (z. B. E:\Software\Windows Toolbox\Toolbox)
 ├─ Toolbox.exe             (nicht im Repo) Starter der Toolbox – Doppelklick genügt, siehe 4.2.
 ├─ Einrichten.cmd          Doppelklick-Starter für setup\setup.ps1 (einrichten). Beliebig oft ausführbar.
 ├─ Entfernen.cmd           Doppelklick-Starter für setup\setup.ps1 -Uninstall (Gegenstück).
