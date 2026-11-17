@@ -6,10 +6,11 @@ Sammlung kleiner, selbst geschriebener Windows-Tools mit einer gemeinsamen Oberf
 |---|---|---|
 | **Toolbox** (GUI) | `toolbox/` | Oberfläche für alle Tools: Tabs oben, Programmliste links, Einstellungen rechts, Zahnrad für die GUI selbst |
 | **Hardware-Monitor** | `programs/hardware_monitor/` | CPU- und GPU-Temperatur als Zahlen in der Taskleiste; Klick öffnet ein Fenster mit Hardware-Werten in Tabs und allen Hardwaredaten (Hersteller-/Produkt-IDs, Seriennummern), dazu Stromverbrauch mit Kosten, Lüfterkurven, Laufwerkszustand (wie CrystalDiskInfo) und Privacy mode ([README](programs/hardware_monitor/README.md), englisch) |
-| **Discord Plus** | `programs/discord_plus/` | Erweiterungen für Discord – bisher der Call-Status: zeigt „Im Call“ an, sobald du telefonierst oder in einem Voice-Chat bist – auch für Freunde ohne Zugriff auf Server oder Anruf; Einrichtung mit Anleitung auf der Toolbox-Seite ([README](programs/discord_plus/README.md)) |
+| **Discord Plus** | eigenes Repo `..\Discord Plus\` | Erweiterungen für Discord – bisher der Call-Status: zeigt „Im Call“ an, sobald du telefonierst oder in einem Voice-Chat bist – auch für Freunde ohne Zugriff auf Server oder Anruf; Einrichtung mit Anleitung auf der Toolbox-Seite. In Rust, nur in der neuen Toolbox (`dist\Toolbox.exe`, **Programm hinzufügen…**) |
 | **Cube Game** | `programs/cube_game/` | Arena-Shooter: Das Spielfenster schrumpft ständig, Schüsse gegen seine Ränder drücken sie wieder auf (WASD + Maus) ([README](programs/cube_game/README.md)) |
 | **Last Bastion** | eigenes Repo `..\Last Bastion\` | Echtzeit-Strategiespiel (StarCraft × They Are Billions × Factorio); nur in der neuen Toolbox (`dist\Toolbox.exe`, **Programm hinzufügen…**) – seine `program.json` liegt im Spiel-Repo |
-| **Rayman Legends** | eigenes Repo `..\Rayman Legends\` | „Spielen“ startet das Spiel und ein Skript, das sein Fenster rahmenlos auf 2560×1440 setzt; Links/Mitte/Rechts schaltet um, auch während des Spiels – ein kleines Skript-Programm, nur in der neuen Toolbox, siehe [Kleines Skript einbinden](#kleines-skript-einbinden) |
+| **Screen Zones** | eigenes Repo `..\Screen Zones\` | Setzt Spiele und Programme rahmenlos in einen festen Bereich des Bildschirms (16:9 links/Mitte/rechts, 21:9, Hälften) und hält sie dort – ein Eintrag pro Spiel, bei jedem Start von selbst; nur in der neuen Toolbox |
+| **Rayman Legends** | eigenes Repo `..\Rayman Legends\` | abgelöst durch Screen Zones; bleibt als Beispiel für ein kleines Skript-Programm, siehe [Kleines Skript einbinden](#kleines-skript-einbinden) |
 
 Jedes Tool hat in seinem Ordner eine eigene `README.md` mit Einrichtung, Bedienung und Technik.
 
@@ -44,7 +45,6 @@ windows-toolbox/
 │  └─ program.ico        Standardsymbol der Programme (⚒ auf Grün), z. B. für den Hardware-Monitor
 └─ programs/
    ├─ cube_game/                   Spiel (pygame-ce) – Aufbau siehe programs/cube_game/README.md
-   ├─ discord_plus/                Erweiterungen für Discord (Call-Status) – Aufbau siehe programs/discord_plus/README.md
    └─ hardware_monitor/            ein Programm = ein Ordner, alles darin
       ├─ program.json             Ausweis: Name, Tab, Beschreibung, Version, Skript, Starter, Port, Aufgabe, Downloads
       ├─ HardwareMonitor.exe       Starter (legt Setup.exe an)

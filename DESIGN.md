@@ -990,9 +990,15 @@ and checked line by line. In this repo:
   entries lie where Windows does not look); a classic program played on a port giving way; the frame drawn with
   both hints.
 
+**Hand test passed 2026-11-18** with the real Discord app and the real Toolbox (call status for a server voice chat
+and a private call, Start with Windows taking over the Python version's entry, Stop); `programs\discord_plus\`
+left this repo, as Rayman did in M2. Found on the way: a kit program started for its page and then switched on
+with Start never runs `main` with its workers on – a one-time step at "the first real start" belongs where the
+worker first runs (Discord Plus: taking over the autostart entry). Its checklist keeps ◐ for what the test did not
+reach (Connect and renewing the token – the Python version's sign-in was still valid).
+
 Still open for M3: Update and **Get programs** (`programs.json`), the first signed release of Discord Plus,
-`template\`, and the hand test with the real Discord app (the ◐ points of Discord Plus' checklist). After that
-switch, `programs\discord_plus\` leaves this repo, as Rayman did in M2.
+`template\`.
 
 **Screen Zones – built 2026-11-17, between the milestones.** The successor of the Rayman script that `KONZEPT.md` in
 the Rayman repo describes, as a kit program in its own repo (`..\Screen Zones\`, `Windows-Toolbox/Screen-Zones`):
