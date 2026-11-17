@@ -8,8 +8,8 @@ Sammlung kleiner, selbst geschriebener Windows-Tools mit einer gemeinsamen Oberf
 | **Hardware-Monitor** | `programs/hardware_monitor/` | CPU- und GPU-Temperatur als Zahlen in der Taskleiste; Klick öffnet ein Fenster mit Hardware-Werten in Tabs und allen Hardwaredaten (Hersteller-/Produkt-IDs, Seriennummern), dazu Stromverbrauch mit Kosten, Lüfterkurven, Laufwerkszustand (wie CrystalDiskInfo) und Privacy mode ([README](programs/hardware_monitor/README.md), englisch) |
 | **Discord Plus** | `programs/discord_plus/` | Erweiterungen für Discord – bisher der Call-Status: zeigt „Im Call“ an, sobald du telefonierst oder in einem Voice-Chat bist – auch für Freunde ohne Zugriff auf Server oder Anruf; Einrichtung mit Anleitung auf der Toolbox-Seite ([README](programs/discord_plus/README.md)) |
 | **Cube Game** | `programs/cube_game/` | Arena-Shooter: Das Spielfenster schrumpft ständig, Schüsse gegen seine Ränder drücken sie wieder auf (WASD + Maus) ([README](programs/cube_game/README.md)) |
-| **Last Bastion** | `programs/last_bastion/` | Echtzeit-Strategiespiel (StarCraft × They Are Billions × Factorio) mit eigenem Repo; die Toolbox-Seite findet den Spielordner, öffnet das Design-Dokument und startet das Spiel ([README](programs/last_bastion/README.md)) |
-| **Rayman Legends** | `programs/rayman_legends/` | „Spielen“ startet das Spiel und ein Skript, das sein Fenster rahmenlos auf 2560×1440 setzt; Links/Mitte/Rechts schaltet um, auch während des Spiels – ein kleines Skript-Programm, siehe [Kleines Skript einbinden](#kleines-skript-einbinden) |
+| **Last Bastion** | eigenes Repo `..\Last Bastion\` | Echtzeit-Strategiespiel (StarCraft × They Are Billions × Factorio); nur in der neuen Toolbox (`dist\Toolbox.exe`, **Programm hinzufügen…**) – seine `program.json` liegt im Spiel-Repo |
+| **Rayman Legends** | eigenes Repo `..\Rayman Legends\` | „Spielen“ startet das Spiel und ein Skript, das sein Fenster rahmenlos auf 2560×1440 setzt; Links/Mitte/Rechts schaltet um, auch während des Spiels – ein kleines Skript-Programm, nur in der neuen Toolbox, siehe [Kleines Skript einbinden](#kleines-skript-einbinden) |
 
 Jedes Tool hat in seinem Ordner eine eigene `README.md` mit Einrichtung, Bedienung und Technik.
 
@@ -44,8 +44,6 @@ windows-toolbox/
 │  └─ program.ico        Standardsymbol der Programme (⚒ auf Grün), z. B. für den Hardware-Monitor
 └─ programs/
    ├─ cube_game/                   Spiel (pygame-ce) – Aufbau siehe programs/cube_game/README.md
-   ├─ rayman_legends/              nur ein Skript: program.json mit "run", das .ps1 und i18n.json (Seite: toolbox/script_page.py)
-   ├─ last_bastion/                nur die Seite für das Spiel Last Bastion (eigenes Repo) – siehe README.md dort
    ├─ discord_plus/                Erweiterungen für Discord (Call-Status) – Aufbau siehe programs/discord_plus/README.md
    └─ hardware_monitor/            ein Programm = ein Ordner, alles darin
       ├─ program.json             Ausweis: Name, Tab, Beschreibung, Version, Skript, Starter, Port, Aufgabe, Downloads
@@ -237,38 +235,42 @@ Wert hinzufügen = Zeile schreiben, Wert weglassen = Zeile löschen. Die genauen
 
 ## Kleines Skript einbinden
 
-Für kleine Skripte (PowerShell, `.cmd`, Python oder eine fertige `.exe`) braucht es keine eigene Seite. Der Ordner
-`programs/<name>/` enthält nur drei Dateien – Vorbild ist `programs/rayman_legends/`:
+Ein kleines PowerShell-Skript wird in der **neuen Toolbox** (`dist\Toolbox.exe`) zu einem Programm mit eigener Seite,
+ohne eine Zeile Oberflächen-Code. Es bekommt einen eigenen Ordner (gern ein eigenes Repo) neben der Toolbox, darin
+nur `program.json` und das Skript. Vorbild ist `..\Rayman Legends\`:
 
 ```json
 {
   "id": "rayman_legends",
   "name": "Rayman Legends",
-  "version": "1.0",
-  "category": "Games",
-  "description": "Kurze Beschreibung",
+  "version": "1.1",
+  "category": { "de": "Spiele", "en": "Games" },
+  "description": { "de": "Kurze Beschreibung", "en": "Short description" },
   "run": "rayman_borderless.ps1",
   "launch": "uplay://launch/410/0",
-  "options": { "Pos": { "values": ["Left", "Center", "Right"], "default": "Center" } }
+  "button": { "de": "Spielen", "en": "Play" },
+  "hint": { "de": "Was vorher im Spiel einzustellen ist …", "en": "What to set in the game first …" },
+  "options": {
+    "Pos": {
+      "values": ["Left", "Center", "Right"], "default": "Center",
+      "label": { "de": "Position", "en": "Position" },
+      "value_labels": { "Left": { "de": "Links", "en": "Left" } }
+    }
+  }
 }
 ```
 
-- `run` statt `page`: Die Toolbox zeigt dann die gemeinsame Seite aus `toolbox/script_page.py` – Hinweistext,
-  Start-Knopf, Status („läuft“), Beenden und Ordner öffnen. Das Skript läuft **ohne Fenster**.
+- `run`: das `.ps1`, das die Toolbox **ohne Fenster** startet (im Ordner des Skripts). „Beenden“ beendet es samt
+  allem, was es gestartet hat.
 - `launch` (optional): wird nach dem Skript geöffnet – ein Spiel (`uplay://…`, `steam://rungameid/…`), eine Webseite
   oder ein Programm.
-- `options` (optional): je Option eine Auswahl auf der Seite, die Werte in der Reihenfolge der Knöpfe; `default` ist
-  der Standard (statt des Objekts geht auch eine einfache Liste – dann ist der erste Wert der Standard). Übergeben wird
-  sie dem Skript beim Start als `-Name Wert` (in PowerShell also `param([string]$Pos)`), gespeichert in
-  `data/<id>.json`. Soll ein laufendes Skript eine Änderung sofort übernehmen, liest es diese Datei selbst nach –
-  Vorbild: `rayman_borderless.ps1` (`Update-Pos`), dort rutscht das Spielfenster beim Umschalten sofort zur Seite.
-- `i18n.json` daneben: `program.name`, `program.description`, `page.hint` (Text über dem Knopf – hier gehört die
-  Anleitung hin, z. B. was im Spiel einzustellen ist), `page.button` (z. B. „Spielen“), `option.<Name>` und
-  `option.<Name>.<Wert>` für die Beschriftungen. Alles optional.
-- Eine eigene README braucht so ein Skript nicht – der Hinweistext auf der Seite reicht.
+- Texte sind ein String oder einer je Sprache (`{ "de": …, "en": … }`) – eine `i18n.json` braucht es nicht. `hint`
+  steht auf der Seite über den Optionen: hier gehört die Anleitung hin. `button` beschriftet den Start-Knopf.
+- `options` (optional): je Option eine Auswahl auf der Seite. Die Toolbox speichert sie in `data\settings.json` im
+  Ordner des Skripts (`{"Pos": "Left"}`); das Skript liest sie dort – beim Start und, soll eine Änderung sofort
+  wirken, auch zwischendurch (Vorbild: `Update-Pos` in `rayman_borderless.ps1`). `data\` gehört in die `.gitignore`.
 
-Danach in der Toolbox unter ⚙ → Programme auf „Installieren“ klicken. Wird aus dem Skript später mehr, bekommt es
-einfach eine eigene Seite (`page`) wie die anderen Tools.
+Danach in der neuen Toolbox **Programm hinzufügen…** → den Ordner wählen. Alle Felder: DESIGN.md 15.3.
 
 ## Technisches
 

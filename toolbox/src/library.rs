@@ -326,6 +326,7 @@ pub fn add(settings: &mut Settings, programs: &[Entry], base: &Path, folder: &Pa
             Some((_, there)) if same_folder(there, &folder) => result.known += 1,
             Some((_, there)) => result.conflicts.push(Conflict { name: found.manifest.name, listed: there.clone(), new: folder }),
             None => {
+                carry_over_options(base, &found);
                 settings.programs.push(store_path(base, &folder));
                 listed.push((found.manifest.id, folder));
                 result.added.push(found.manifest.name);
@@ -341,8 +342,39 @@ pub fn replace(settings: &mut Settings, programs: &[Entry], base: &Path, folder:
     if let Some(listed) = programs.iter().find(|e| e.id() == found.manifest.id) {
         settings.programs.retain(|s| s != &listed.stored);
     }
+    carry_over_options(base, &found);
     settings.programs.push(store_path(base, folder));
     Ok(())
+}
+
+/// A script that moves out of the classic Toolbox (Rayman in M2) keeps its options: when it is added in the new
+/// layout and has no `data\settings.json` yet, the values the classic Toolbox next to this one saved for it
+/// (`data\<id>.json` there) are written into that file – once, like every program's settings (DESIGN.md 11).
+fn carry_over_options(base: &Path, found: &kit::manifest::Found) {
+    let (manifest, home) = (&found.manifest, &found.home);
+    // A script still in the classic layout (texts in `i18n.json`) reads the classic file itself.
+    if manifest.kind() != Kind::Script || manifest.options.is_empty() || home.join("i18n.json").exists() {
+        return;
+    }
+    let file = home.join("data").join("settings.json");
+    let Some(root) = base.parent() else { return };
+    if file.exists() {
+        return;
+    }
+    let Some(old) = std::fs::read_to_string(root.join("data").join(format!("{}.json", manifest.id)))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Map<String, Value>>(s.trim_start_matches('\u{feff}')).ok())
+    else {
+        return;
+    };
+    let kept: serde_json::Map<String, Value> = old.into_iter().filter(|(name, value)| manifest.options.get(name).is_some_and(|o| o.values.contains(value))).collect();
+    if kept.is_empty() {
+        return;
+    }
+    let written = std::fs::create_dir_all(home.join("data")).and_then(|_| std::fs::write(&file, serde_json::to_string_pretty(&kept).unwrap_or_default()));
+    if let Err(e) = written {
+        kit::app::log(&format!("{}: {e}", file.display()));
+    }
 }
 
 // ---------- the first start ----------
@@ -514,6 +546,43 @@ mod tests {
         assert!(script_command(&gone).unwrap_err().contains("missing"));
         gone.manifest.run = Some("r.cmd".into());
         assert!(script_command(&gone).unwrap_err().contains(".ps1"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_script_moving_out_of_the_classic_toolbox_keeps_its_options() {
+        let root = temp("move");
+        let base = root.join("Toolbox").join("dist");
+        let manifest = r#"{"id":"rayman","name":"Rayman","run":"r.ps1","options":{"Pos":{"values":["Left","Center"],"default":"Center"}}}"#;
+        write(root.join("Toolbox/programs/rayman/program.json"), manifest);
+        write(root.join("Toolbox/programs/rayman/i18n.json"), "{}");
+        write(root.join("Toolbox/data/rayman.json"), r#"{"Pos": "Left", "Gone": 1}"#);
+        write(root.join("Rayman/program.json"), manifest);
+
+        // On the list from the classic folder; the moved copy is the same id → replaced, and its options come along.
+        let mut settings = Settings { programs: vec![r"..\programs\rayman".into()], ..Default::default() };
+        let (programs, _) = load(&settings, &base, &[]);
+        let added = add(&mut settings, &programs, &base, &root.join("Rayman"));
+        assert_eq!(added.conflicts.len(), 1);
+        assert!(!root.join("Rayman/data/settings.json").exists(), "nothing is written before the answer");
+        replace(&mut settings, &programs, &base, &root.join("Rayman")).unwrap();
+        assert_eq!(settings.programs, [r"..\..\Rayman"]);
+        let saved: Value = serde_json::from_str(&std::fs::read_to_string(root.join("Rayman/data/settings.json")).unwrap()).unwrap();
+        assert_eq!(saved, serde_json::json!({"Pos": "Left"}), "only the script's own options are carried over");
+        let (programs, _) = load(&settings, &base, &[]);
+        assert_eq!((programs[0].classic.is_none(), &programs[0].options["Pos"]), (true, &serde_json::json!("Left")));
+
+        // Once only: what the new file says wins over the classic one from then on.
+        write(root.join("Rayman/data/settings.json"), r#"{"Pos": "Center"}"#);
+        let mut fresh = Settings::default();
+        add(&mut fresh, &[], &base, &root.join("Rayman"));
+        assert_eq!(load(&fresh, &base, &[]).0[0].options["Pos"], "Center");
+
+        // Added without the classic folder on the list (it was removed or deleted first): carried over as well.
+        std::fs::remove_dir_all(root.join("Rayman/data")).unwrap();
+        let mut fresh = Settings::default();
+        add(&mut fresh, &[], &base, &root.join("Rayman"));
+        assert_eq!(load(&fresh, &base, &[]).0[0].options["Pos"], "Left");
         std::fs::remove_dir_all(&root).ok();
     }
 

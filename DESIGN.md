@@ -159,7 +159,7 @@ Windows Toolbox/                just a folder, not a repo
 ├─ Discord Plus/                same shape
 ├─ Cube Game/                   same shape
 ├─ Last Bastion/                already its own repo; only gets a program.json
-└─ Rayman Legends/              program.json + rayman_borderless.ps1 – two files, nothing to build
+└─ Rayman Legends/              program.json + rayman_borderless.ps1 – two files, nothing to build (+ .gitignore for data\)
 ```
 
 **Names** (decided 2026-11-16): the folder carries the program's name; the GitHub repo the same with `-` for the
@@ -938,9 +938,28 @@ actions that change settings (a switch in the tray menu); `copy_text`. Each with
 the network – 61 in all. What is still missing for M3: the Toolbox's switches and buttons that use them ("Start
 with Windows", Update, **Get programs**), `programs.json`, `release.ps1`, and Discord Plus.
 
-**M2 – Rayman + Last Bastion.** Rayman moves into its own folder (two files) and proves the script page;
-Last Bastion gets its `program.json`. First two programs outside this repo that no longer need the classic
-Toolbox.
+**M2 – Rayman + Last Bastion – built 2026-11-17.** Rayman moves into its own folder (two files) and proves the
+script page; Last Bastion gets its `program.json`. First two programs outside this repo that no longer need the
+classic Toolbox – and that the classic Toolbox no longer shows: `programs\rayman_legends\` and
+`programs\last_bastion\` are deleted here.
+
+What M2 showed or settled:
+
+- **Rayman Legends** (`..\Rayman Legends\`, repo `Windows-Toolbox/Rayman-Legends`): `program.json` with all texts in
+  it (15.3 – no `i18n.json`), `rayman_borderless.ps1` without parameters – it reads `Pos` from its own
+  `data\settings.json` at the start and while the game runs. Next to them only `.gitignore` (`/data/`) and
+  `KONZEPT.md`, the older concept for a successor ("Screen Zones", written before this document; not planned yet).
+- **A script's options move with it.** When a script in the new layout is added (or replaces its classic entry) and
+  has no `data\settings.json` yet, the Toolbox writes the values the classic Toolbox saved for it
+  (`data\<id>.json` there) into that file – once, only the script's own options, only valid values. So the position
+  chosen before is still chosen.
+- **Last Bastion**: `program.json` in its repo root (`exe`, texts, `button` "Play"), without `version`; its
+  `build.ps1` writes it to `dist\program.json` with the version from `Cargo.toml` added, so the version stands in one
+  place (a kit program gets this from `kit::build`; an external exe does it in its build script). The old page's
+  extras – choosing the game folder, opening DESIGN.md – are dropped: the folder is the one added, and Open folder
+  and README are on every page.
+- **Switching over** is **Add program…** on the new folder; the Toolbox sees the same `id` already on the list and
+  asks which one to keep. Tested on the built `Toolbox.exe` in a sandbox, through the window's messages.
 
 **M3 – Discord Plus in Rust.** First kit program and first one built in a repo of its own against the kit's git
 address: background role, its page shown in the new Toolbox (running and stopped), instant `set`, autostart, an
@@ -1154,8 +1173,9 @@ here when they are built: `combo`, `tabs`, `table`, `graph`, `canvas`.
 | `exe` | path relative to the manifest | external exe, kit program | what Start/Play runs |
 | `run` | path of a `.ps1` relative to the manifest | script | started hidden by the agent: `powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <run>`, in its job (4.2), in the manifest's folder. Other script types are refused with a message. |
 | `launch` | URL or path | script | opened after `run` was started (Rayman: `uplay://…`) |
-| `options` | `{"<name>": {"values": [...], "default": …, "label": text, "value_labels": {"<value>": text}}}` | script | shown as `choice` blocks; written to the script's `data\settings.json` as `{"<name>": value}`, which the script reads (today `data\rayman_legends.json` in the Toolbox) |
-| `hint`, `button` | text | script | explanation above the options; label of the start button (default "Start") |
+| `options` | `{"<name>": {"values": [...], "default": …, "label": text, "value_labels": {"<value>": text}}}` | script | shown as `choice` blocks; written to the script's `data\settings.json` as `{"<name>": value}`, which the script reads (a script still in the classic Toolbox: its `data\<id>.json`, carried over once when the script moves – M2) |
+| `hint` | text | script | explanation above the options |
+| `button` | text | all | label of the start button (default "Start"; Rayman and Last Bastion: "Play") |
 | `protocol` | number | kit program | newest protocol it speaks |
 | `background` | bool | kit program | has a background role (tray, "quit all") |
 | `repository` | `"owner/name"` | all, optional | updates (section 9) |
