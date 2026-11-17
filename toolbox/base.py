@@ -31,6 +31,7 @@ The Toolbox finds each program via programs/<program>/program.json; its "page" i
 """
 
 import copy
+import ctypes
 import os
 import tkinter as tk
 import tkinter.font as tkfont
@@ -382,6 +383,10 @@ class Slider(Element):
 
 
 # ---------- Page ----------
+REPAINT_DELAY = 120       # ms after the last scroll step until the page is repainted (see ToolPage.scrolled)
+REDRAW_ALL = 0x0001 | 0x0004 | 0x0080 | 0x0100     # RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW
+
+
 class ToolPage(ctk.CTkScrollableFrame):
     """A scrollable page in the main area: title, subtitle and the sections from layout()."""
     settings_file = None      # JSON file with the settings (Path) – by default data\<program>.json
@@ -396,8 +401,11 @@ class ToolPage(ctk.CTkScrollableFrame):
         self.w = {}                              # building blocks with name
         self.elements = []                       # all building blocks (for refreshing)
         self.save_job = None
+        self.repaint_job = None
         self.data = self.load()
         self.columnconfigure(0, weight=1)
+        # Every scroll step (mouse wheel, scrollbar, middle-click, dragging) comes through here
+        self._parent_canvas.configure(yscrollcommand=self.scrolled)
 
         ctk.CTkLabel(self, text=info.name, font=ctk.CTkFont(size=24, weight="bold"),
                      anchor="w").grid(row=0, column=0, sticky="ew", padx=24, pady=(22, 0))
@@ -407,6 +415,22 @@ class ToolPage(ctk.CTkScrollableFrame):
         for number, section in enumerate(self.layout(), start=2):
             self.add_section(number, section)
         self.refresh()
+
+    # --- Scrolling ---
+    def scrolled(self, first, last):
+        """The page has moved: update the scrollbar and repaint once shortly after the scrolling stops.
+        Tk paints every building block as a Windows window of its own; scrolled fast, Windows moves stale pixels
+        before Tk has repainted them and stripes stay behind. Tk can't prevent that while scrolling – but the
+        repaint at the end makes sure nothing stays behind once the page stands still."""
+        self._scrollbar.set(first, last)
+        if self.repaint_job:
+            self.after_cancel(self.repaint_job)
+        self.repaint_job = self.after(REPAINT_DELAY, self.repaint)
+
+    def repaint(self):
+        """Let Windows repaint the whole visible page with all building blocks, right now."""
+        self.repaint_job = None
+        ctypes.windll.user32.RedrawWindow(self._parent_canvas.winfo_id(), None, None, REDRAW_ALL)
 
     def add_section(self, number, section):
         card = ctk.CTkFrame(self, fg_color=CARD, corner_radius=12, border_width=1, border_color=BORDER)
