@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, RichText, ViewportCommand};
 use kit::app::{Look, WORKERS_OFF};
+use kit::autostart::State as Autostart;
 use kit::ipc::{self, Conn};
 use kit::manifest::Kind;
 use kit::page::Page;
@@ -420,6 +421,23 @@ impl App {
                 self.ask(Ask::Remove { stored: entry.stored.clone() });
             }
         });
+        if entry.has_autostart() {
+            ui.add_space(2.0);
+            let mut on = entry.autostart_on();
+            if ui.checkbox(&mut on, t!("page.autostart")).changed() {
+                self.ask(Ask::Autostart { id: entry.id().into(), on });
+            }
+            let noted = entry.autostart.as_ref().filter(|a| a.state != Autostart::Off);
+            match noted.and_then(|a| a.target.as_ref().map(|t| (a.state, t))) {
+                Some((Autostart::DisabledByWindows, _)) if entry.autostart_is_mine() => {
+                    ui.label(RichText::new(format!("⚠ {}", t!("page.autostart.disabled"))).color(ui::warn(ui)));
+                }
+                Some((_, other)) if !entry.autostart_is_mine() => {
+                    ui::hint(ui, t!("page.autostart.elsewhere", file = other.display()));
+                }
+                _ => {}
+            }
+        }
         ui.add_space(6.0);
         ui.separator();
 
@@ -807,7 +825,7 @@ mod tests {
         let kind = manifest.kind();
         let classic = (kind == Kind::Classic).then(|| crate::classic::Classic { root: Some("C:\\Classic".into()), starter: Some("C:\\Classic\\programs\\x\\X.exe".into()), port: Some(1), task: None, page: true });
         let options = manifest.options.iter().map(|(name, option)| (name.clone(), option.default.clone())).collect();
-        Entry { stored: folder.into(), folder: folder.into(), home: folder.into(), manifest, kind, classic, options, run }
+        Entry { stored: folder.into(), folder: folder.into(), home: folder.into(), manifest, kind, classic, options, run, autostart: None }
     }
 
     /// DESIGN.md 13: the drawing, without a window. Every kind of program, running, stopped and crashed, the gear
@@ -829,6 +847,9 @@ mod tests {
             entry("C:\\Nowhere\\Rayman", r#"{"id":"rayman","name":"Rayman","category":"Games","run":"r.ps1","hint":"Set the game to windowed mode first.","button":{"de":"Spielen","en":"Play"},"options":{"Pos":{"values":["Left","Center"],"default":"Center"}}}"#, Run { running: Some(false), ..Default::default() }),
             entry("C:\\Nowhere\\Game", r#"{"id":"game","name":"Game","category":"Games","exe":"G.exe"}"#, running),
             entry("C:\\Nowhere\\Python", r#"{"id":"python","name":"Python","category":"Other things","page":"x.py","starter":"X.exe","port":1}"#, Run::default()),
+            // "Start with Windows": switched off in Task Manager, and an entry that starts another copy.
+            Entry { autostart: Some(kit::autostart::Entry { state: Autostart::DisabledByWindows, target: Some("C:\\Nowhere\\Plus\\P.exe".into()) }), ..entry("C:\\Nowhere\\Plus", r#"{"id":"plus","name":"Plus","exe":"P.exe","protocol":1,"background":true}"#, Run::default()) },
+            Entry { autostart: Some(kit::autostart::Entry { state: Autostart::On, target: Some(std::env::current_exe().unwrap()) }), ..entry("C:\\Nowhere\\Other", r#"{"id":"other","name":"Other","exe":"O.exe","protocol":1,"background":true}"#, Run::default()) },
         ];
         let missing = vec![
             Missing { stored: "..\\Gone".into(), folder: "C:\\Gone".into(), problem: Problem::NotFound },

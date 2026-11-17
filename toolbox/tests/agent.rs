@@ -227,6 +227,109 @@ fn a_kit_program_is_followed() {
     toolbox.wait_exit();
 }
 
+/// "Start with Windows" for a background kit program: switched on and off from the window, an entry of another copy
+/// left alone, and taken away with the program when it leaves the list. In the sandbox the entries lie where
+/// Windows does not look.
+#[test]
+fn start_with_windows() {
+    use kit::autostart::{self, State as Autostart};
+    let _turn = turn();
+    const ID: &str = "fake_autostart";
+    let mut toolbox = Toolbox::start("autostart");
+    toolbox.write("Plus/program.json", r#"{"id":"fake_autostart","name":"Plus","exe":"Plus.exe","protocol":1,"background":true}"#);
+    toolbox.write("Plus/Plus.exe", "");
+    toolbox.write("Game/program.json", r#"{"id":"fake_game","name":"Game","exe":"Game.exe"}"#);
+    let exe = toolbox.root.join("Plus").join("Plus.exe");
+    let _ = autostart::set(ID, None);
+    let (window, _) = toolbox.window();
+    window.send(&json!({"type": "add", "folder": toolbox.root.join("Plus")})).unwrap();
+    window.send(&json!({"type": "add", "folder": toolbox.root.join("Game")})).unwrap();
+    let listed = library(&window, |l| l["programs"].as_array().is_some_and(|p| p.len() == 2));
+    assert_eq!(listed["programs"][0]["autostart"], json!({"state": "off", "target": null}));
+    assert_eq!(listed["programs"][1]["autostart"], json!(null), "a plain exe has no switch");
+
+    window.send(&json!({"type": "autostart", "id": ID, "on": true})).unwrap();
+    library(&window, |l| l["programs"][0]["autostart"]["state"] == "on");
+    assert_eq!(autostart::read(ID), autostart::Entry { state: Autostart::On, target: Some(exe.clone()) });
+    window.send(&json!({"type": "autostart", "id": ID, "on": false})).unwrap();
+    library(&window, |l| l["programs"][0]["autostart"]["state"] == "off");
+
+    // Another copy holds the entry (set behind the agent's back – it looks once a second while a window is open):
+    // switching off here leaves it, switching on takes it over.
+    let other = std::env::current_exe().unwrap();
+    autostart::set(ID, Some(&other)).unwrap();
+    library(&window, |l| l["programs"][0]["autostart"]["state"] == "on");
+    window.send(&json!({"type": "autostart", "id": ID, "on": false})).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(autostart::read(ID).target, Some(other.clone()), "not this copy's entry");
+    window.send(&json!({"type": "autostart", "id": ID, "on": true})).unwrap();
+    library(&window, |l| l["programs"][0]["autostart"]["target"] == json!(exe));
+
+    // Off the list: the entry goes too.
+    window.send(&json!({"type": "remove", "stored": r"..\Plus"})).unwrap();
+    library(&window, |l| l["programs"].as_array().is_some_and(|p| p.len() == 1));
+    assert_eq!(autostart::state(ID), Autostart::Off);
+    // The sandbox's keys are not needed any more.
+    let _ = Process::new("reg").args(["delete", &format!(r"HKCU\Software\WindowsToolbox\Sandbox{}", ipc::sandbox()), "/f"]).output();
+
+    window.send(&json!({"type": "quit"})).unwrap();
+    toolbox.wait_exit();
+}
+
+/// A running program of the classic Toolbox replaced by its new version: the old one is asked to quit on its port,
+/// then the new one is started – the two never run side by side.
+#[test]
+fn a_running_classic_program_gives_way() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    let _turn = turn();
+    const ID: &str = "fake_swap";
+    // The Python version, played by this test: a port that answers `status` and `quit`, and closes after `quit`.
+    let old = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = old.local_addr().unwrap().port();
+    let heard = Arc::new(Mutex::new(Vec::<String>::new()));
+    {
+        let heard = heard.clone();
+        std::thread::spawn(move || {
+            for conn in old.incoming() {
+                let Ok(mut conn) = conn else { break };
+                let mut line = String::new();
+                let _ = BufReader::new(&conn).read_line(&mut line);
+                let line = line.trim().to_string();
+                let _ = conn.write_all(b"{\"ok\": true}\n");
+                heard.lock().unwrap().push(line.clone());
+                if line == "quit" {
+                    break; // the listener closes: the port is free, the program has ended
+                }
+            }
+        });
+    }
+    let new = ipc::Server::bind(ID).unwrap();
+    let mut toolbox = Toolbox::start("swap");
+    toolbox.write("Old/program.json", &format!(r#"{{"id":"fake_swap","name":"Swap","script":"swap.py","starter":"Swap.exe","port":{port}}}"#));
+    toolbox.write("New/program.json", r#"{"id":"fake_swap","name":"Swap","exe":"Swap.exe","protocol":1,"background":true}"#);
+    let (window, _) = toolbox.window();
+    window.send(&json!({"type": "add", "folder": toolbox.root.join("Old")})).unwrap();
+    library(&window, |l| l["programs"][0]["kind"] == "classic" && l["programs"][0]["run"]["running"] == true);
+
+    // "Add program…" on the new folder asks which one to keep; the answer is the new one.
+    window.send(&json!({"type": "add", "folder": toolbox.root.join("New")})).unwrap();
+    let added = until(&window, |told| (told["type"] == "added").then(|| told.clone()));
+    assert_eq!(added["conflicts"].as_array().map(Vec::len), Some(1));
+    window.send(&json!({"type": "replace", "folder": toolbox.root.join("New")})).unwrap();
+
+    // The new one's pipe is there, so the agent follows it – and, once the old one has quit, starts it.
+    let link = new.accept().unwrap();
+    assert!(matches!(link.read::<Command>(), Some(Command::Hello(_))));
+    assert_eq!(link.read::<Command>(), Some(Command::Start));
+    assert!(heard.lock().unwrap().contains(&"quit".to_string()), "the old one was asked to quit first");
+    let toast = until(&window, |told| (told["type"] == "toast").then(|| told.clone()));
+    assert_eq!((&toast["text"], &toast["error"]), (&json!("Swap: the old version was stopped, the new one started."), &json!(false)));
+
+    window.send(&json!({"type": "quit"})).unwrap();
+    toolbox.wait_exit();
+}
+
 /// A second start while an agent runs only asks it to open the window – it must end at once and never become a
 /// second agent. (With `--background` it does not even ask, so no window appears in this test.)
 #[test]

@@ -76,8 +76,20 @@
     "en": "Remove from the list"
   },
   "page.remove.hint": {
-    "de": "Nimmt das Programm nur von der Liste der Toolbox. Sein Ordner bleibt, wie er ist; mit „Programm hinzufügen…“ kommt es wieder dazu.",
-    "en": "Only takes the program off the Toolbox's list. Its folder stays as it is; “Add program…” brings it back."
+    "de": "Nimmt das Programm nur von der Liste der Toolbox. Sein Ordner bleibt, wie er ist; mit „Programm hinzufügen…“ kommt es wieder dazu. Startete es mit Windows, tut es das danach nicht mehr.",
+    "en": "Only takes the program off the Toolbox's list. Its folder stays as it is; “Add program…” brings it back. If it started with Windows, it no longer does."
+  },
+  "page.autostart": {
+    "de": "Mit Windows starten",
+    "en": "Start with Windows"
+  },
+  "page.autostart.disabled": {
+    "de": "In Windows abgeschaltet (Task-Manager → Autostart) – es startet nicht mit. Einschalten erlaubt es wieder.",
+    "en": "Switched off in Windows (Task Manager → Startup) – it does not start. Switching on allows it again."
+  },
+  "page.autostart.elsewhere": {
+    "de": "Mit Windows startet eine andere Kopie: {file}. Einschalten startet stattdessen diese.",
+    "en": "Another copy starts with Windows: {file}. Switching on starts this one instead."
   },
   "page.missing": {
     "de": "{file} fehlt.",
@@ -262,6 +274,14 @@
   "toast.declined": {
     "de": "{name} braucht Administratorrechte – die Nachfrage von Windows wurde abgelehnt.",
     "en": "{name} needs admin rights – the question Windows asked was declined."
+  },
+  "toast.autostart_failed": {
+    "de": "{name}: „Mit Windows starten“ ließ sich nicht ändern – {why}",
+    "en": "{name}: “Start with Windows” could not be changed – {why}"
+  },
+  "toast.switched": {
+    "de": "{name}: die alte Version wurde beendet, die neue gestartet.",
+    "en": "{name}: the old version was stopped, the new one started."
   },
   "toast.did_not_stop": {
     "de": "{name} hat sich nicht beenden lassen.",

@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
+use kit::autostart::{self, State as Autostart};
 use kit::i18n;
 use kit::manifest::{Kind, Manifest, Text, value_text};
 use kit::page::{Block, ChoiceOption, Page};
@@ -81,6 +82,9 @@ pub struct Entry {
     /// A script's options with their current values.
     pub options: BTreeMap<String, Value>,
     pub run: Run,
+    /// What Windows has noted for "Start with Windows" – only for background kit programs, `None` for the others.
+    #[serde(default)]
+    pub autostart: Option<autostart::Entry>,
 }
 
 impl Entry {
@@ -102,6 +106,33 @@ impl Entry {
         match &self.classic {
             Some(Classic { root: Some(root), .. }) => root.join("data").join(format!("{}.json", self.id())),
             _ => self.home.join("data").join("settings.json"),
+        }
+    }
+
+    /// "Start with Windows" belongs to programs that keep running without a window (DESIGN.md 4.4).
+    pub fn has_autostart(&self) -> bool {
+        self.kind == Kind::Kit && self.manifest.background
+    }
+
+    /// Reads what Windows has noted (direct registry calls, cheap). `true` if it changed.
+    pub fn read_autostart(&mut self) -> bool {
+        let now = self.has_autostart().then(|| autostart::read(self.id()));
+        let changed = now != self.autostart;
+        self.autostart = now;
+        changed
+    }
+
+    /// On means: Windows starts **this** copy. An entry that starts another copy, or one Windows switched off,
+    /// is off here – switching on makes it start this one.
+    pub fn autostart_on(&self) -> bool {
+        self.autostart.as_ref().is_some_and(|a| a.state == Autostart::On && self.autostart_is_mine())
+    }
+
+    /// The entry names this copy's exe – or an exe that is gone (a moved folder, repaired at the next start).
+    pub fn autostart_is_mine(&self) -> bool {
+        match (self.autostart.as_ref().and_then(|a| a.target.as_ref()), self.exe()) {
+            (Some(target), Some(exe)) => !target.exists() || same_file(target, &exe),
+            _ => false,
         }
     }
 
@@ -258,6 +289,14 @@ pub fn resolve(base: &Path, stored: &str) -> PathBuf {
     std::path::absolute(&full).unwrap_or(full)
 }
 
+/// The same file, however the two paths are written.
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => same_folder(a, b),
+    }
+}
+
 fn same_folder(a: &Path, b: &Path) -> bool {
     let clean = |p: &Path| p.to_string_lossy().trim_end_matches(['\\', '/']).to_lowercase();
     clean(a) == clean(b)
@@ -281,8 +320,9 @@ pub fn load(settings: &Settings, base: &Path, old: &[Entry]) -> (Vec<Entry>, Vec
                 let classic = classic::inspect(&mut found);
                 let kind = found.manifest.kind();
                 let run = old.iter().find(|e| e.id() == found.manifest.id).map(|e| e.run.clone()).unwrap_or_default();
-                let mut entry = Entry { stored: stored.clone(), folder: folder.clone(), home: found.home, manifest: found.manifest, kind, classic, options: BTreeMap::new(), run };
+                let mut entry = Entry { stored: stored.clone(), folder: folder.clone(), home: found.home, manifest: found.manifest, kind, classic, options: BTreeMap::new(), run, autostart: None };
                 entry.read_options();
+                entry.read_autostart();
                 programs.push(entry);
             }
             Ok(None) => missing.push(lost(Problem::NotFound)),
@@ -419,6 +459,35 @@ mod tests {
     fn write(file: PathBuf, text: &str) {
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         std::fs::write(file, text).unwrap();
+    }
+
+    /// "Start with Windows" is on only for an entry that starts this copy (or an exe that is gone – a moved
+    /// folder, repaired at the program's next start) and that Windows has not switched off.
+    #[test]
+    fn whose_autostart_entry_it_is() {
+        let dir = temp("autostart");
+        write(dir.join("P.exe"), "");
+        let manifest = Manifest::parse(r#"{"id":"plus","name":"Plus","exe":"P.exe","protocol":1,"background":true}"#).unwrap();
+        let mut e = Entry { stored: String::new(), folder: dir.clone(), home: dir.clone(), kind: manifest.kind(), manifest, classic: None, options: BTreeMap::new(), run: Run::default(), autostart: None };
+        assert!(e.has_autostart());
+        let noted = |state, target: PathBuf| Some(autostart::Entry { state, target: Some(target) });
+        assert!(!e.autostart_on() && !e.autostart_is_mine(), "nothing noted");
+        // Written another way: the same file.
+        e.autostart = noted(Autostart::On, dir.join(".").join("P.exe"));
+        assert!(e.autostart_on());
+        e.autostart = noted(Autostart::DisabledByWindows, dir.join("P.exe"));
+        assert!(!e.autostart_on() && e.autostart_is_mine());
+        e.autostart = noted(Autostart::On, PathBuf::from(r"C:\No Such Folder\P.exe"));
+        assert!(e.autostart_on(), "an exe that is gone counts as this one");
+        e.autostart = noted(Autostart::On, std::env::current_exe().unwrap());
+        assert!(!e.autostart_on() && !e.autostart_is_mine(), "another copy's entry");
+        // Only background kit programs have the switch.
+        let script = Manifest::parse(r#"{"id":"s","name":"S","run":"s.ps1"}"#).unwrap();
+        let mut s = Entry { kind: script.kind(), manifest: script, autostart: None, ..e.clone() };
+        assert!(!s.has_autostart());
+        s.read_autostart();
+        assert_eq!(s.autostart, None);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

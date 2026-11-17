@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use kit::ipc::{self, Conn, legacy};
-use kit::manifest::Kind;
+use kit::autostart;
+use kit::manifest::{Kind, Manifest};
 use kit::process::{self, Job};
 use kit::proto::{Command, Health, PROTOCOL, State, ToolboxHello, Tray as ProgramTray, Want};
 use kit::settings::Settings;
@@ -154,10 +155,12 @@ impl Agent {
     }
 
     /// Looks at what does not report by itself: scripts (their job), plain exes (their process), the Python
-    /// programs (their port). Kit programs push their status. `true` if something changed.
+    /// programs (their port), and "Start with Windows" – Task Manager can switch it off at any time. Kit programs
+    /// push their status. `true` if something changed.
     fn refresh(&mut self) -> bool {
         let mut changed = false;
         for e in &mut self.programs {
+            changed |= e.read_autostart();
             let running = match e.kind {
                 // Followed: its status is pushed. Not followed: its workers do not run.
                 Kind::Kit if self.links.contains_key(e.id()) => continue,
@@ -525,9 +528,13 @@ fn handle(shared: &Shared, ask: Ask) {
             follow_running(shared);
         }
         Ask::Replace { folder } => {
-            {
+            let gives_way = {
                 let mut a = lock(shared);
                 let a = &mut *a;
+                // The program that gives way, if it is a running one of the classic Toolbox: it is stopped and the
+                // new one started, so the two never run side by side (Discord Plus: the activity twice).
+                let id = Manifest::read(&folder).ok().flatten().map(|f| f.manifest.id);
+                let old = id.and_then(|id| a.entry(&id).filter(|e| e.kind == Kind::Classic && e.run.running == Some(true)).cloned());
                 if let Err(e) = library::replace(&mut a.settings.value, &a.programs, &a.base, &folder) {
                     return a.toast(format!("{}: {e}", folder.display()), true);
                 }
@@ -535,11 +542,36 @@ fn handle(shared: &Shared, ask: Ask) {
                 a.reload();
                 a.refresh();
                 a.changed();
-            }
+                old
+            };
             follow_running(shared);
+            if let Some(old) = gives_way {
+                let shared = shared.clone();
+                // A Python program takes seconds to quit.
+                std::thread::spawn(move || {
+                    if old.classic.as_ref().is_some_and(|c| c.stop()) {
+                        start(&shared, old.id());
+                        lock(&shared).toast(t!("toast.switched", name = name_of(&old)), false);
+                    } else {
+                        lock(&shared).toast(t!("toast.did_not_stop", name = name_of(&old)), true);
+                    }
+                    std::thread::sleep(Duration::from_millis(400));
+                    let mut a = lock(&shared);
+                    if a.refresh() {
+                        a.changed();
+                    }
+                });
+            }
         }
         Ask::Remove { stored } => {
             let mut a = lock(shared);
+            // Off the list, a program also stops starting with Windows: the Toolbox would no longer show the switch.
+            // Only an entry that starts this copy – another copy's is left alone.
+            if let Some(entry) = a.programs.iter().find(|e| e.stored == stored).filter(|e| e.autostart_is_mine()) {
+                if let Err(e) = autostart::set(entry.id(), None) {
+                    app::log(&format!("the autostart entry of {} could not be removed: {e}", entry.id()));
+                }
+            }
             a.settings.value.programs.retain(|s| s != &stored);
             a.save();
             a.reload();
@@ -548,6 +580,25 @@ fn handle(shared: &Shared, ask: Ask) {
         Ask::Start { id } => act(shared, start, id),
         Ask::Stop { id } => act(shared, stop, id),
         Ask::Restart { id } => act(shared, restart, id),
+        Ask::Autostart { id, on } => {
+            let mut a = lock(shared);
+            let Some(entry) = a.entry(&id).filter(|e| e.has_autostart()).cloned() else { return };
+            let result = match entry.exe() {
+                Some(exe) if on => autostart::set(&id, Some(&exe)),
+                // Off: only an entry that starts this copy.
+                _ if !on && entry.autostart_is_mine() => autostart::set(&id, None),
+                _ => Ok(()),
+            };
+            if let Err(e) = result {
+                a.toast(t!("toast.autostart_failed", name = name_of(&entry), why = e), true);
+            }
+            if let Some(e) = a.entry_mut(&id) {
+                e.read_autostart();
+            }
+            // Also after a refusal: the window then shows what holds.
+            a.last_sent.clear();
+            a.changed();
+        }
         Ask::SetOption { id, name, value } => {
             let mut a = lock(shared);
             if let Some(Err(e)) = a.entry_mut(&id).map(|e| e.set_option(&name, value)) {
@@ -835,7 +886,7 @@ mod tests {
     fn entry(json: &str, running: Option<bool>) -> Entry {
         let manifest = Manifest::parse(json).unwrap();
         let kind = manifest.kind();
-        Entry { stored: manifest.id.clone(), folder: PathBuf::new(), home: PathBuf::new(), manifest, kind, classic: None, options: Default::default(), run: Run { running, ..Default::default() } }
+        Entry { stored: manifest.id.clone(), folder: PathBuf::new(), home: PathBuf::new(), manifest, kind, classic: None, options: Default::default(), run: Run { running, ..Default::default() }, autostart: None }
     }
 
     fn agent(programs: Vec<Entry>) -> Agent {

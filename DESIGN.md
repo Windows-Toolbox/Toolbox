@@ -918,8 +918,8 @@ What M1 showed or settled:
 - **Window and agent talk over the agent's pipe.** The agent holds the list of programs and everything known
   about them and sends it to the window on every change; the window sends back what the user did. These messages
   are private to `Toolbox.exe` (15.1).
-- **Still to come, each with the milestone that needs it**: "Start with Windows" and "Restart after a crash" (M3,
-  with `kit::autostart`), Update and **Get programs** (M3), Set up / Uninstall (M4), an "Open" entry for a
+- **Still to come, each with the milestone that needs it**: "Start with Windows" (built in M3, see there) and
+  "Restart after a crash" (M3, with `kit::autostart`), Update and **Get programs** (M3), Set up / Uninstall (M4), an "Open" entry for a
   program's own window in the tray menu (M4), export / import, Start menu shortcut, clean up (M5). The gear holds
   look and language, the list of programs, the tray icon's instructions and Quit.
 - **A window's icon**: eframe puts egui's own icon over ours one frame after the window appears. `kit::ui::viewport`
@@ -966,6 +966,28 @@ address: background role, its page shown in the new Toolbox (running and stopped
 action button (Connect), its menu under the Toolbox icon and the fallback icon without it, its own signed release
 zip and update, and **Get programs** in the Toolbox with Discord Plus as its first entry. `template\` in this
 repo is extracted from it.
+
+**M3, first part – built 2026-11-17.** Discord Plus lives in its own repo (`..\Discord Plus\`,
+`Windows-Toolbox/Discord-Plus`); its README holds the port's checklist (section 14), written from the Python version
+and checked line by line. In this repo:
+
+- **"Start with Windows"** in the frame of every background kit program (a switch under Start · Stop · Restart).
+  The agent reads `kit::autostart` for those programs with the list and again once a second while a window is open
+  – Task Manager can switch an entry off at any time. *On* means: Windows starts **this** copy. An entry Windows has
+  switched off shows "switched off in Windows – switching on allows it again"; an entry that starts another copy
+  of the program shows which, and switching on takes it over. Switching off removes only an entry of this copy.
+- **Remove from the list** also removes the program's autostart entry (only one that starts this copy) – the
+  Toolbox would no longer show the switch to undo it.
+- **A running classic program gives way.** When the answer to "which one to keep" replaces a running program of
+  the classic Toolbox (Python, with a port), the agent asks the old one to quit on its port and then starts the new
+  one – otherwise both would run (Discord Plus: the activity twice in Discord).
+- **Tests**: 65 in this repo – new: the agent with the switch, another copy's entry and Remove (in the sandbox the
+  entries lie where Windows does not look); a classic program played on a port giving way; the frame drawn with
+  both hints.
+
+Still open for M3: Update and **Get programs** (`programs.json`), the first signed release of Discord Plus,
+`template\`, and the hand test with the real Discord app (the ◐ points of Discord Plus' checklist). After that
+switch, `programs\discord_plus\` leaves this repo, as Rayman did in M2.
 
 **M4 – Hardware Monitor in Rust.** Bridge as the only elevated part, status line and live displays in the tray,
 detail window (with the new blocks and the canvas from 4.5), settings, setup steps (PawnIO, LHM, task).

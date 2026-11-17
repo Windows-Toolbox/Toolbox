@@ -43,6 +43,8 @@ pub enum Ask {
     Start { id: String },
     Stop { id: String },
     Restart { id: String },
+    /// "Start with Windows" switched on or off.
+    Autostart { id: String, on: bool },
     /// One option of a script was changed on its page.
     SetOption { id: String, name: String, value: Value },
     /// Show this program's page in the classic Toolbox.

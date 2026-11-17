@@ -9,6 +9,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 
+use serde::{Deserialize, Serialize};
+
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
 use windows_sys::Win32::System::Registry::*;
 
@@ -21,8 +23,10 @@ pub const ARGUMENT: &str = "--autostart";
 const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const APPROVED: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum State {
+    #[default]
     Off,
     On,
     /// The entry is there, but Windows will not start it: it was switched off in Task Manager or in Settings.
@@ -30,7 +34,7 @@ pub enum State {
 }
 
 /// What Windows has noted for a program.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct Entry {
     pub state: State,
     /// The exe the entry starts – `None` without an entry.
