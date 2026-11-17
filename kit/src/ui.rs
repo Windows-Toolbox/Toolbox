@@ -142,6 +142,16 @@ pub fn no_window(title: &str, error: &dyn std::fmt::Display) {
 #[derive(Default)]
 pub struct PageView {
     held: Option<Held>,
+    /// The text field the user is typing in: its key and what it holds now. The program hears of it when the
+    /// field is left – until then pushed pages must not overwrite what is being typed.
+    typing: Option<Typing>,
+}
+
+struct Typing {
+    key: String,
+    text: String,
+    /// Set when the field was left and the text was sent.
+    left: Option<Instant>,
 }
 
 struct Held {
@@ -224,6 +234,32 @@ impl PageView {
                     for o in options {
                         if ui.selectable_label(&o.value == value, &o.label).clicked() && &o.value != value {
                             out.push(Command::Set { key: key.clone(), value: o.value.clone() });
+                        }
+                    }
+                });
+            }
+            Block::Entry { label, key, value, secret } => {
+                // Handed over a moment ago: until the program's page shows it (or half a second), the typed text
+                // stays – otherwise the old value would flash up.
+                if self.typing.as_ref().is_some_and(|t| &t.key == key && t.left.is_some_and(|at| &t.text == value || at.elapsed() > Duration::from_millis(500))) {
+                    self.typing = None;
+                }
+                ui.horizontal(|ui| {
+                    ui.label(label);
+                    let mut text = self.typing.as_ref().filter(|t| &t.key == key).map(|t| t.text.clone()).unwrap_or_else(|| value.clone());
+                    let r = ui.add(egui::TextEdit::singleline(&mut text).password(*secret).desired_width(280.0));
+                    if r.has_focus() || r.changed() {
+                        self.typing = Some(Typing { key: key.clone(), text: text.clone(), left: None });
+                    }
+                    // Leaving the field (a click elsewhere, Tab, Enter) hands the text over – once, and only if it
+                    // differs from what the program has.
+                    if r.lost_focus() {
+                        if &text != value {
+                            out.push(Command::Set { key: key.clone(), value: text.clone().into() });
+                            self.typing = Some(Typing { key: key.clone(), text, left: Some(Instant::now()) });
+                            ui.ctx().request_repaint_after(Duration::from_millis(550));
+                        } else {
+                            self.typing = None;
                         }
                     }
                 });
@@ -317,7 +353,12 @@ mod tests {
         let page = Page {
             blocks: vec![Block::Section {
                 title: "S".into(),
-                blocks: vec![Block::Switch { label: "On".into(), key: "on".into(), value: false }, Block::Unknown, Block::Text { text: "t".into() }],
+                blocks: vec![
+                    Block::Switch { label: "On".into(), key: "on".into(), value: false },
+                    Block::Entry { label: "Name".into(), key: "name".into(), value: "x".into(), secret: true },
+                    Block::Unknown,
+                    Block::Text { text: "t".into() },
+                ],
             }],
         };
         let ctx = egui::Context::default();

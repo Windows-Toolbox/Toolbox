@@ -49,6 +49,14 @@ pub enum Block {
         value: Value,
         options: Vec<ChoiceOption>,
     },
+    /// A line of text to type in. `secret`: shown as dots (a password, a client secret).
+    Entry {
+        label: String,
+        key: String,
+        value: String,
+        #[serde(default)]
+        secret: bool,
+    },
     Buttons {
         buttons: Vec<Button>,
     },
@@ -120,6 +128,19 @@ impl<'a> Builder<'a> {
             .map(|(v, l)| ChoiceOption { value: serde_json::to_value(v).unwrap_or(Value::Null), label: l.as_ref().into() })
             .collect();
         self.blocks.push(Block::Choice { label: label.into(), key: key.into(), value, options });
+    }
+
+    /// A field for a line of text. The Toolbox sends `set` when the field is left or Enter is pressed – not per
+    /// keystroke.
+    pub fn entry(&mut self, label: impl Into<String>, key: &str) {
+        let value = self.value(key).as_str().unwrap_or_default().to_string();
+        self.blocks.push(Block::Entry { label: label.into(), key: key.into(), value, secret: false });
+    }
+
+    /// Like `entry`, but what is typed shows as dots.
+    pub fn secret(&mut self, label: impl Into<String>, key: &str) {
+        let value = self.value(key).as_str().unwrap_or_default().to_string();
+        self.blocks.push(Block::Entry { label: label.into(), key: key.into(), value, secret: true });
     }
 
     /// A row of buttons: `p.buttons(|b| b.button("Open log", "open_log"));`
@@ -206,6 +227,14 @@ mod tests {
         assert_eq!(blocks[2]["value"], 3.0);
         assert_eq!(blocks[3]["options"][1], serde_json::json!({"value": 2.0, "label": "two"}));
         assert_eq!(blocks[4]["buttons"][1]["action"], "stop");
+
+        let v = serde_json::json!({"name": "Anna", "token": "s3cret"});
+        let mut b = Builder::new(&v);
+        b.entry("Name", "name");
+        b.secret("Token", "token");
+        let json = serde_json::to_value(b.finish()).unwrap();
+        assert_eq!(json["blocks"][0], serde_json::json!({"type": "entry", "label": "Name", "key": "name", "value": "Anna", "secret": false}));
+        assert_eq!(json["blocks"][1]["secret"], true);
     }
 
     #[test]

@@ -95,7 +95,7 @@ fn cargo_metadata(dir: &Path, package: &str) -> Result<Value, String> {
 
 /// The manifest as a file a person can read: the fields in the order of DESIGN.md 15.3, not alphabetically.
 fn readable(manifest: &Map<String, Value>) -> String {
-    const ORDER: [&str; 10] = ["id", "name", "version", "category", "description", "exe", "repository", "protocol", "background", "button"];
+    const ORDER: [&str; 11] = ["id", "name", "version", "category", "description", "exe", "repository", "update_key", "protocol", "background", "button"];
     let first = ORDER.iter().filter_map(|k| manifest.get_key_value(*k));
     let rest = manifest.iter().filter(|(k, _)| !ORDER.contains(&k.as_str()));
     let fields: Vec<String> = first
@@ -137,6 +137,9 @@ fn program_json(toolbox: &Map<String, Value>, version: &str, description: &str, 
     if let [name, owner] = short[..] {
         if repository.contains("github.com") {
             m.insert("repository".into(), json!(format!("{owner}/{name}")));
+            // Updates are only accepted if they are signed with this key (15.6). Somebody who releases an own
+            // program with the kit names the own key in `[package.metadata.toolbox]`.
+            m.insert("update_key".into(), toolbox.get("update_key").cloned().unwrap_or(json!(crate::UPDATE_KEY)));
         }
     }
     m.insert("protocol".into(), json!(crate::PROTOCOL));
@@ -161,6 +164,7 @@ mod tests {
         let m = program_json(toolbox.as_object().unwrap(), "2.0.0", "CPU and GPU temperature …", "https://github.com/Windows-Toolbox/Hardware-Monitor").unwrap();
         assert_eq!(m["version"], "2.0.0");
         assert_eq!(m["repository"], "Windows-Toolbox/Hardware-Monitor");
+        assert_eq!(m["update_key"], crate::UPDATE_KEY);
         assert_eq!(m["description"], "CPU and GPU temperature …");
         assert_eq!(m["protocol"], crate::PROTOCOL);
         assert_eq!(text_in(&m["name"], "en"), "Hardware Monitor");
@@ -178,6 +182,7 @@ mod tests {
         let bad_id = json!({"id": "Bad Id", "name": "X", "category": "General", "exe": "X.exe"});
         assert!(program_json(bad_id.as_object().unwrap(), "1.0.0", "", "").is_err());
         let no_repo = json!({"id": "x", "name": "X", "category": "General", "exe": "X.exe"});
-        assert!(!program_json(no_repo.as_object().unwrap(), "1.0.0", "", "").unwrap().contains_key("repository"));
+        let m = program_json(no_repo.as_object().unwrap(), "1.0.0", "", "").unwrap();
+        assert!(!m.contains_key("repository") && !m.contains_key("update_key"), "no repository, no updates, no key");
     }
 }

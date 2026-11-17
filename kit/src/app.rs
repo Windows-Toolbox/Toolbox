@@ -14,7 +14,7 @@ use crate::ipc::{self, Conn};
 use crate::page::{self, Builder, Page};
 use crate::proto::{AgentCommand, Command, PROTOCOL, State, Status, ToolboxHello, Tray, Want};
 use crate::settings::Settings;
-use crate::{Meta, i18n};
+use crate::{Meta, i18n, tray};
 
 /// Internal argument between our own processes (never typed by a user): start with the workers off, only to
 /// serve the settings page (DESIGN.md 4.4).
@@ -36,8 +36,9 @@ pub trait Program: Send + 'static {
     }
     /// Called with the new settings after a `set` – and once at the start with the loaded ones.
     fn applied(&mut self, _s: &Self::Settings) {}
-    /// A button of the page or an entry of the tray menu. The returned text is shown as a toast.
-    fn action(&mut self, _name: &str) -> Option<String> {
+    /// A button of the page or an entry of the tray menu. It may change settings (a reset, a switch in the tray
+    /// menu) – they are applied and saved like after a `set`. The returned text is shown as a toast.
+    fn action(&mut self, _name: &str, _s: &mut Self::Settings) -> Option<String> {
         None
     }
     /// `show`: open the program's own window and bring it to the front.
@@ -173,6 +174,12 @@ struct Inner<P: Program> {
     last_status: Option<Status>,
     last_page: Option<Page>,
     last_tray: Option<Tray>,
+    /// The program shows a tray icon of its own, because its workers run and no Toolbox carries its menu (section 6).
+    own_icon: bool,
+    /// Counts what should wake a worker from `Runtime::sleep`: a `set`, an action, start and stop.
+    nudges: u64,
+    /// Wakes the thread of that icon.
+    waker: Option<tray::Waker>,
 }
 
 /// The running program, as its worker sees it.
@@ -209,6 +216,19 @@ impl<P: Program> Runtime<P> {
         }
     }
 
+    /// What a worker does between two rounds of its work: waits – without using the CPU – until the time is over,
+    /// or until something happened it should look at right away: a setting was changed, a button was pressed, the
+    /// workers were switched on or off. So a change shows at once, and Stop never waits for a long pause to end.
+    pub fn sleep(&self, time: Duration) {
+        let until = Instant::now() + time;
+        let mut g = self.lock();
+        let (nudges, running) = (g.nudges, g.running);
+        while g.nudges == nudges && g.running == running {
+            let Some(left) = until.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()) else { return };
+            g = self.inner.1.wait_timeout(g, left).unwrap_or_else(|e| e.into_inner()).0;
+        }
+    }
+
     /// Access to the program and its settings.
     pub fn with<R>(&self, f: impl FnOnce(&mut P, &P::Settings) -> R) -> R {
         let mut g = self.lock();
@@ -236,6 +256,24 @@ impl<P: Program> Runtime<P> {
 const SAVE_DELAY: Duration = Duration::from_millis(700);
 /// With the workers off the program ends this long after the last page viewer left.
 const IDLE_EXIT: Duration = Duration::from_secs(2);
+
+/// Runs an action of the program. If it changed settings, they are applied and saved like after a `set`.
+fn act<P: Program>(g: &mut Inner<P>, name: &str) -> Option<String> {
+    let before = serde_json::to_value(&g.settings.value).ok();
+    let Inner { program, settings, .. } = g;
+    let toast = program.action(name, &mut settings.value);
+    if serde_json::to_value(&settings.value).ok() != before {
+        program.applied(&settings.value);
+        g.save_due = Some(Instant::now() + SAVE_DELAY);
+    }
+    toast
+}
+
+/// Wakes a worker that waits in `Runtime::sleep`: something it should look at has changed.
+fn nudge<P: Program>(g: &mut Inner<P>, rt: &Runtime<P>) {
+    g.nudges += 1;
+    rt.inner.1.notify_all();
+}
 
 fn build_page<P: Program>(g: &Inner<P>) -> Page {
     let v = serde_json::to_value(&g.settings.value).unwrap_or_default();
@@ -273,6 +311,90 @@ fn push<P: Program>(g: &mut Inner<P>, page_again: bool, everything_for: Option<&
     g.last_status = status;
     g.last_page = page;
     g.last_tray = tray;
+    // The program's own icon shows the same line.
+    if let (true, Some(waker)) = (g.own_icon, g.waker) {
+        waker.wake();
+    }
+}
+
+/// Without a Toolbox for this long, a running program shows its own tray icon.
+const ALONE: Duration = Duration::from_millis(1500);
+/// The fixed identity of that icon (Windows remembers "show this icon" per exe path and uid, section 6).
+const OWN_ICON: u32 = 1;
+/// Menu ids of the own icon; a program's own entries follow from `MENU_PROGRAM` on.
+const MENU_SETTINGS: u32 = 1;
+const MENU_QUIT: u32 = 2;
+const MENU_PROGRAM: u32 = 10;
+
+/// Opens the program's page in the Toolbox, if one runs. `false` if there is none.
+pub fn open_in_toolbox(id: &str) -> bool {
+    ipc::connect(ipc::TOOLBOX).is_ok_and(|c| c.send(&AgentCommand::Show { id: Some(id.to_string()) }).is_ok())
+}
+
+/// The thread of the program's own tray icon (section 6): the same line and menu the Toolbox would show, plus
+/// Settings and Quit. It sleeps in the Windows message loop; the icon exists only while `own_icon` is set.
+fn own_icon<P: Program>(rt: Runtime<P>) {
+    let name = crate::manifest::Manifest::parse(P::META.manifest).map(|m| m.name).unwrap_or_default();
+    let waker = tray::create({
+        let rt = rt.clone();
+        // The actions of the program's entries in the menu as it was last shown.
+        let mut actions: Vec<String> = vec![];
+        move |icon, event| {
+            let name = name.get(&i18n::language()).to_string();
+            match event {
+                tray::Event::Wake => {
+                    let g = rt.lock();
+                    if g.own_icon {
+                        let line = g.program.tray().line;
+                        let tip = if line.is_empty() { name } else { format!("{name}: {line}") };
+                        icon.set_icon(OWN_ICON, tray::Icon::Program, &tip);
+                    } else {
+                        icon.remove_icon(OWN_ICON);
+                    }
+                }
+                tray::Event::LeftClick => settings::<P>(&name),
+                tray::Event::Menu => {
+                    let tray = rt.lock().program.tray();
+                    let mut items = vec![];
+                    if !tray.line.is_empty() {
+                        items.push(tray::Item::info(tray.line));
+                        items.push(tray::Item::Separator);
+                    }
+                    actions = tray.menu.iter().map(|m| m.action.clone()).collect();
+                    items.extend(tray.menu.iter().enumerate().map(|(i, m)| tray::Item::entry(MENU_PROGRAM + i as u32, m.label.clone())));
+                    items.push(tray::Item::entry(MENU_SETTINGS, crate::t!("kit.tray.settings")));
+                    items.push(tray::Item::Separator);
+                    items.push(tray::Item::entry(MENU_QUIT, crate::t!("kit.tray.quit")));
+                    return items;
+                }
+                tray::Event::Chosen(MENU_SETTINGS) => settings::<P>(&name),
+                tray::Event::Chosen(MENU_QUIT) => finish(&mut rt.lock()),
+                tray::Event::Chosen(n) => {
+                    if let Some(action) = actions.get((n - MENU_PROGRAM) as usize) {
+                        let mut g = rt.lock();
+                        // What the action answers would be a toast in the Toolbox; here nobody could show it.
+                        let _ = act(&mut g, action);
+                        nudge(&mut g, &rt);
+                        push(&mut g, false, None);
+                    }
+                }
+            }
+            vec![]
+        }
+    });
+    rt.lock().waker = Some(waker);
+    tray::run_loop();
+}
+
+/// "Settings" in the program's own tray menu: its page in the Toolbox, if one runs.
+fn settings<P: Program>(name: &str) {
+    if !open_in_toolbox(P::META.id) {
+        let text = crate::t!("kit.tray.no_toolbox", file = data_dir().join("settings.json").display());
+        std::thread::spawn({
+            let name = name.to_string();
+            move || message_box(&name, &text, false)
+        });
+    }
 }
 
 /// Tells the agent that the workers run; it then connects for status and tray (no polling, section 6). Without
@@ -292,6 +414,7 @@ fn finish<P: Program>(g: &mut Inner<P>) -> ! {
         std::process::exit(0);
     });
     g.program.shutdown();
+    tray::forget(OWN_ICON);
     if g.save_due.take().is_some() {
         if let Err(e) = g.settings.save() {
             log(&format!("settings could not be saved: {e}"));
@@ -335,8 +458,19 @@ pub fn run<P: Program>(program: P, worker: impl FnOnce(Runtime<P>) + Send + 'sta
     i18n::set_language(&look.language);
     let mut program = program;
     program.applied(&settings.value);
-    let inner = Inner { program, settings, look, running: workers, clients: vec![], save_due: None, last_status: None, last_page: None, last_tray: None };
+    let inner = Inner { program, settings, look, running: workers, clients: vec![], save_due: None, last_status: None, last_page: None, last_tray: None, own_icon: false, nudges: 0, waker: None };
     let rt = Runtime { inner: Arc::new((Mutex::new(inner), Condvar::new())) };
+    // What Windows remembers by path follows a moved folder (section 2), and what an update put aside is removed.
+    std::thread::spawn(move || {
+        if let Ok(exe) = std::env::current_exe() {
+            crate::autostart::repair(id, &exe);
+        }
+        crate::update::clean_up(&program_dir());
+    });
+    {
+        let rt = rt.clone();
+        std::thread::spawn(move || own_icon(rt));
+    }
     if workers {
         announce(id);
     }
@@ -349,9 +483,23 @@ pub fn run<P: Program>(program: P, worker: impl FnOnce(Runtime<P>) + Send + 'sta
         let rt = rt.clone();
         std::thread::spawn(move || {
             let mut idle_since = Instant::now();
+            let mut alone_since = Instant::now();
             loop {
                 std::thread::sleep(Duration::from_millis(200));
                 let mut g = rt.lock();
+                // Without a Toolbox the program must still be reachable (how else to quit it?): while its workers
+                // run and nobody carries its tray menu, it shows an icon of its own. Not at once – a Toolbox that is
+                // there connects within a moment of the start.
+                if !g.running || g.clients.iter().any(|c| c.want.contains(&Want::Tray)) {
+                    alone_since = Instant::now();
+                }
+                let own_icon = alone_since.elapsed() > ALONE;
+                if own_icon != g.own_icon {
+                    g.own_icon = own_icon;
+                    if let Some(waker) = g.waker {
+                        waker.wake();
+                    }
+                }
                 if g.save_due.is_some_and(|t| Instant::now() >= t) {
                     g.save_due = None;
                     if let Err(e) = g.settings.save() {
@@ -420,6 +568,7 @@ fn serve<P: Program>(rt: Runtime<P>, conn: Arc<Conn>) {
                     let g2 = &mut *g;
                     g2.program.applied(&g2.settings.value);
                     g.save_due = Some(Instant::now() + SAVE_DELAY);
+                    nudge(&mut g, &rt);
                     push(&mut g, false, None);
                 }
                 Err(why) => {
@@ -430,9 +579,10 @@ fn serve<P: Program>(rt: Runtime<P>, conn: Arc<Conn>) {
                 }
             },
             Command::Action { name } => {
-                if let Some(text) = g.program.action(&name) {
+                if let Some(text) = act(&mut g, &name) {
                     toast(text);
                 }
+                nudge(&mut g, &rt);
                 push(&mut g, false, None);
             }
             Command::Start => {
@@ -445,6 +595,7 @@ fn serve<P: Program>(rt: Runtime<P>, conn: Arc<Conn>) {
             }
             Command::Stop => {
                 g.running = false;
+                rt.inner.1.notify_all();
                 push(&mut g, false, None);
             }
             Command::Show => g.program.show(),

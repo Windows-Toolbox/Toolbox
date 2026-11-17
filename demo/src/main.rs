@@ -74,7 +74,7 @@ impl Program for Demo {
         self.settings = s.clone();
     }
 
-    fn action(&mut self, name: &str) -> Option<String> {
+    fn action(&mut self, name: &str, _s: &mut Settings) -> Option<String> {
         match name {
             "reset" => {
                 self.count = 0;
@@ -96,7 +96,12 @@ fn main() {
             rt.changed();
             while rt.running() {
                 let rate = rt.with(|d, _| d.settings.rate);
-                std::thread::sleep(std::time::Duration::from_secs_f64(rate.clamp(0.1, 10.0)));
+                // Not `thread::sleep`: a changed rate, a pressed button or Stop end the pause at once.
+                let started = std::time::Instant::now();
+                rt.sleep(std::time::Duration::from_secs_f64(rate.clamp(0.1, 10.0)));
+                if started.elapsed().as_secs_f64() < rate.clamp(0.1, 10.0) {
+                    continue;
+                }
                 rt.with(|d, _| d.count += 1);
                 rt.changed();
             }

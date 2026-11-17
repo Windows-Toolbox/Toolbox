@@ -28,6 +28,8 @@ pub fn sandbox() -> &'static str {
     static SUFFIX: OnceLock<String> = OnceLock::new();
     SUFFIX.get_or_init(|| match std::env::var("TOOLBOX_SANDBOX") {
         Ok(s) if !s.is_empty() => format!(".{s}"),
+        // The kit's own unit tests are always in a sandbox, whoever starts them.
+        _ if cfg!(test) => format!(".kit-test-{}", std::process::id()),
         _ => String::new(),
     })
 }

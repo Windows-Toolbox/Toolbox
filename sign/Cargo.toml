@@ -1,0 +1,11 @@
+[package]
+name = "sign"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+description = "The developer's tool behind release.ps1: packs a dist folder into a release zip and signs it (DESIGN.md 15.6)."
+
+[dependencies]
+kit.workspace = true
+ed25519-dalek.workspace = true
+getrandom.workspace = true

@@ -3,6 +3,18 @@
     "de": "Dieser Teil der Seite braucht eine neuere Toolbox.",
     "en": "This part of the page needs a newer Toolbox."
   },
+  "kit.tray.settings": {
+    "de": "Einstellungen",
+    "en": "Settings"
+  },
+  "kit.tray.quit": {
+    "de": "Beenden",
+    "en": "Quit"
+  },
+  "kit.tray.no_toolbox": {
+    "de": "Die Einstellungen dieses Programms werden in der Windows Toolbox angezeigt – sie läuft gerade nicht. Starte Toolbox.exe und öffne dort die Seite dieses Programms.\n\nDie Einstellungen stehen in:\n{file}",
+    "en": "The settings of this program are shown in the Windows Toolbox – it is not running at the moment. Start Toolbox.exe and open this program's page there.\n\nThe settings are stored in:\n{file}"
+  },
   "kit.no_opengl": {
     "de": "Das Fenster kann nicht geöffnet werden: Dieser PC hat kein nutzbares OpenGL. Installiere den Grafiktreiber deiner Grafikkarte und starte das Programm noch einmal.\n\nEinzelheiten: {error}",
     "en": "The window cannot be opened: this PC has no usable OpenGL. Install the driver of your graphics card and start the program again.\n\nDetails: {error}"

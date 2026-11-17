@@ -1,7 +1,7 @@
 # One command builds everything in this repo: the shared library, the Toolbox and the kit's demo program.
 [workspace]
 resolver = "3"
-members = ["kit", "toolbox", "demo"]
+members = ["kit", "toolbox", "demo", "sign"]
 
 [workspace.package]
 edition = "2024"
@@ -17,6 +17,10 @@ rfd = { version = "0.18.0", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 windows-sys = "0.61.2"
+# For signed releases (looked up 2026-11-16): checking a signature (the kit) and making one (the sign tool).
+ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast"] }
+getrandom = "0.4.3"
+miniz_oxide = "0.9.1"
 
 [profile.release]
 lto = true

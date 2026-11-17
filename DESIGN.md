@@ -544,10 +544,13 @@ additional small icons next to its own. They are still the Toolbox's icons (same
 program's. One switch on the Hardware Monitor page, "Temperatures in the taskbar", turns them on. Default: **off**
 (opt-in, section 2).
 
-**Without the Toolbox** a background program must still be reachable (how else to quit it?). Rule in `kit::tray`:
-as long as no Toolbox agent is connected, the program shows the same data in an icon of its own; the moment the
-agent connects, that icon disappears. No polling: the agent connects to every running program when it starts, a
-program connects to the agent when it starts, and a closed pipe tells either side that the other one is gone.
+**Without the Toolbox** a background program must still be reachable (how else to quit it?). Rule in `kit::app`:
+while its workers run and no Toolbox agent carries its tray menu for 1.5 s (a Toolbox that is there connects within
+that moment of the start), the program shows the same data in an icon of its own – the status line as tooltip,
+its menu entries, then **Settings** (its page in the Toolbox; if none runs, a message naming the settings file)
+and **Quit**. The moment the agent connects, that icon disappears. No polling: the agent connects to every running
+program when it starts, a program connects to the agent when it starts, and a closed pipe tells either side that
+the other one is gone.
 
 **Windows 11 hides new tray icons** in the overflow (`^`) until the user drags them out or switches them on under
 Settings → Personalisation → Taskbar → Other system tray icons. That goes for the Toolbox icon and for every live
@@ -927,6 +930,14 @@ What M1 showed or settled:
   drawn into memory (section 13).
 - **Size**: `Toolbox.exe` 8.6 MB, Kit Demo (no window) 0.7 MB – release build.
 
+**Built ahead for M3 (2026-11-16, after the M1 commit) – in the kit, not yet used by the Toolbox.** The parts of
+M3 that do not need Discord Plus itself: `kit::autostart`, `kit::http`, `kit::update` and the `sign` tool with
+the release key (15.6, 15.7); a kit program's own tray icon when no Toolbox runs (section 6); the `entry` block
+(15.2, Discord Plus' login); `Runtime::sleep`, so a changed setting or Stop does not wait for a worker's pause;
+actions that change settings (a switch in the tray menu); `copy_text`. Each with tests, all without a window or
+the network – 61 in all. What is still missing for M3: the Toolbox's switches and buttons that use them ("Start
+with Windows", Update, **Get programs**), `programs.json`, `release.ps1`, and Discord Plus.
+
 **M2 – Rayman + Last Bastion.** Rayman moves into its own folder (two files) and proves the script page;
 Last Bastion gets its `program.json`. First two programs outside this repo that no longer need the classic
 Toolbox.
@@ -1127,10 +1138,11 @@ value, filled in by the kit.
 | `switch` | `label`, `key`, `value` (bool) | a checkbox; sends `set` with true/false |
 | `slider` | `label`, `key`, `value`, `min`, `max`, `step` (numbers), `unit` (string) | a slider with its value; the slider rule of 4.3 |
 | `choice` | `label`, `key`, `value`, `options` (list of `{"value","label"}`) | one button per option, the current one selected |
+| `entry` | `label`, `key`, `value` (string), `secret` (bool, default false) | a one-line text field, dots if `secret`; sends `set` once when the field is left (click elsewhere, Tab, Enter) and only if the text changed – not per keystroke. While typing, pushed pages do not overwrite the field. |
 | `buttons` | `buttons` (list of `{"label","action"}`) | a row of buttons; each sends `action` |
 
 Unknown `type` → a line "This part of the page needs a newer Toolbox". Blocks still to come (4.5) get their fields
-here when they are built: `combo`, `entry`, `tabs`, `table`, `graph`, `canvas`.
+here when they are built: `combo`, `tabs`, `table`, `graph`, `canvas`.
 
 ### 15.3 `program.json`
 
@@ -1194,7 +1206,8 @@ dist = "dist"                                       # optional: this is the defa
 ```
 
 The kit's build helper (`kit::build::manifest()` in `build.rs`) reads this (through `cargo metadata`, so the kit
-needs no TOML reader), adds `protocol` – and, from M3 on, `update_key` – from the kit, embeds the manifest in the
+needs no TOML reader), adds `protocol` and – for a program with a GitHub `repository` – `update_key` (the kit's
+`UPDATE_KEY`, unless `[package.metadata.toolbox]` names an own `update_key`), embeds the manifest in the
 exe and writes it next to the build output as `<package>.program.json` (several programs may share one build
 folder); `build.ps1` copies it into `dist\` as `program.json`. The same build script puts the resource with name,
 icon and version into the exe, for Task Manager and the taskbar.
@@ -1222,8 +1235,11 @@ In this repo's root, with `programs.json.sig` next to it (15.6). Loaded from
 
 - **Algorithm**: Ed25519 (`ed25519-dalek`). Signed is the zip file's exact bytes.
 - **Private key**: 32-byte seed, base64, in `%USERPROFILE%\.windows-toolbox\release-key` – outside every repo.
-  Backed up by hand. A small binary `sign` in this repo's workspace creates the key once and signs files;
-  `release.ps1` of every repo calls it.
+  Backed up by hand. A small binary `sign` in this repo's workspace (`sign\`) creates the key once and signs files;
+  `release.ps1` of every repo calls it: `sign key` shows the public key (and creates the private one the first
+  time – an existing but unreadable key file is an error, never a reason for a new key), `sign pack <dist> <zip>`
+  packs the folder without `data\` and writes `<zip>.sig`, `sign file <file>` writes `<file>.sig` (for
+  `programs.json`). The key was created on 2026-11-16; its public half is `kit::UPDATE_KEY`.
 - **Public key**: base64 of the 32 bytes, `update_key` in the manifest (kit programs: a constant in the kit).
 - **Release assets**: `<id>-<version>.zip` and `<id>-<version>.zip.sig` (base64 of the 64-byte signature),
   release tag `v<version>`. The zip holds what `dist\` holds, without `data\`.
@@ -1238,24 +1254,26 @@ here.
 
 | Module | Public functions |
 |---|---|
-| `lib` *(M1)* | `PROTOCOL` · `Meta { id, version, dist, manifest }` · `meta!()` – the program's facts from its `Cargo.toml`, through its build script |
-| `app` *(M1)* | `trait Program { type Settings; const META; fn page(&self, &mut page::Builder, &Settings); fn status(&self, running: bool) -> Status; fn tray(&self) -> Tray; fn applied(&mut self, &Settings); fn action(&mut self, &str) -> Option<String>; fn show(&mut self); fn shutdown(&mut self) }` · `run(program, worker)` – role, single instance, pipe, settings, delayed saving · `Runtime::{changed, running, wait_running, with, update, look}` · `init(&meta)` – first thing in every exe: application id, data folder, panic → log · `data_dir()` · `program_dir()` · `log(msg)` · `message_box(title, text, error)` · `Look { language, theme, zoom }` · `WORKERS_OFF` · `data_dir_variable(id)` for tests |
+| `lib` *(M1)* | `PROTOCOL` · `UPDATE_KEY` (15.6) · `Meta { id, version, dist, manifest }` · `meta!()` – the program's facts from its `Cargo.toml`, through its build script |
+| `app` *(M1)* | `trait Program { type Settings; const META; fn page(&self, &mut page::Builder, &Settings); fn status(&self, running: bool) -> Status; fn tray(&self) -> Tray; fn applied(&mut self, &Settings); fn action(&mut self, &str, &mut Settings) -> Option<String> – may change settings, which are then applied and saved like after a `set`; fn show(&mut self); fn shutdown(&mut self) }` · `run(program, worker)` – role, single instance, pipe, settings, delayed saving, the program's **own tray icon** while its workers run and no Toolbox carries its menu for 1.5 s (section 6: the line, its menu, Settings, Quit), `autostart::repair` and `update::clean_up` at start · `Runtime::{changed, running, wait_running, with, update, look}` · `Runtime::sleep(time)` – a worker's pause that a `set`, an action, Start or Stop end at once · `open_in_toolbox(id)` · `init(&meta)` – first thing in every exe: application id, data folder, panic → log · `data_dir()` · `program_dir()` · `log(msg)` · `message_box(title, text, error)` · `Look { language, theme, zoom }` · `WORKERS_OFF` · `data_dir_variable(id)` for tests |
 | `settings` *(M1)* | `Settings::<T>::load(path)` – missing fields default, invalid ones fall back one by one, unknown ones kept · `.value` · `.existed` · `.save()` (written aside, then renamed) · `extra(key)` / `set_extra(key, value)` – a value next to the struct's fields |
-| `page` *(M1)* | `Page { blocks }` · `Block` (15.2) · `Builder::{section, text, status, switch, slider, choice, buttons, finish}` · `apply_set(&settings, key, value) -> Result<T, String>` · `check_keys::<Settings>(page)` for the test |
+| `page` *(M1)* | `Page { blocks }` · `Block` (15.2) · `Builder::{section, text, status, switch, slider, choice, entry, secret, buttons, finish}` · `apply_set(&settings, key, value) -> Result<T, String>` · `check_keys::<Settings>(page)` for the test |
 | `proto` *(M1)* | `Command`, `State`, `Status`, `Health`, `Tray`, `MenuEntry`, `Live`, `ToolboxHello`, `Want`, `AgentCommand`, `PROTOCOL` – the messages of 15.1 as serde types |
 | `ipc` *(M1)* | `pipe_name(id)` · `Server::bind(id)` (`AlreadyExists` = runs already) · `Server::accept()` · `connect(id)` · `connect_wait(id, timeout)` · `exists(id)` · `Conn::{send, send_line, read, read_line, close}` · `TOOLBOX` · `sandbox()` · `legacy::{listening(port), command(port, text, timeout)}` – the Python programs' ports, until the last one is ported |
 | `ui` *(M1)* | `theme(ctx, theme, zoom)` · `THEMES` · `PageView::show(ui, &Page) -> Vec<Command>` · `Toast::{show, ui}` · `link_target(&response, target)` / `hovered_target(ctx)` – the bottom bar · `viewport(title)` – how every window starts out · `use_program_icon()` · `no_window(title, error)` – the message when OpenGL is missing · `heading(ui, text)` · `section(ui, title, salt, add)` · `hint(ui, text)` · `bar_button(ui, text, chosen)` – the editor's building blocks · `ACCENT`, `GOOD`, `WARN`, `BAD`, `accent()`, `good()`, `warn()`, `bad()`, `muted()`, `health_color()` |
-| `tray` *(M1)* | `create(handler) -> Waker` · `run_loop()` · `Tray::{set_icon(uid, Icon, tip), remove_icon, quit}` – setting what an icon shows already costs nothing · `Icon::{Program, Text(text, color)}` · `program_icon(size)` · `text_icon(text, color)` · `Event`, `Item` |
-| `process` *(M1)* | `Job::{create, open, spawn, active_processes, terminate}` · `job_name(id)` · `spawn(exe, args)` – without a console window · `open(target)` – a file, a folder, an address · `run_elevated(exe)` · `wait_exit(pid, timeout)` · `running(exe) -> pids` · `quote(arg)`. Still to come: `run_task(name)`, `efficiency_mode()` (M4) |
+| `tray` *(M1)* | `create(handler) -> Waker` · `run_loop()` · `Tray::{set_icon(uid, Icon, tip), remove_icon, quit}` – setting what an icon shows already costs nothing · `Icon::{Program, Text(text, color)}` · `program_icon(size)` · `text_icon(text, color)` · `Event`, `Item` · `forget(uid)` – removes an icon at once from any thread, for a process about to end (otherwise it stays until the mouse passes over it) |
+| `process` *(M1)* | `Job::{create, open, spawn, active_processes, terminate}` · `job_name(id)` · `spawn(exe, args)` – without a console window · `open(target)` – a file, a folder, an address · `copy_text(text)` – the clipboard, for a page's "Copy" button · `run_elevated(exe)` · `wait_exit(pid, timeout)` · `running(exe) -> pids` · `quote(arg)`. Still to come: `run_task(name)`, `efficiency_mode()` (M4) |
 | `i18n` *(M1)* | `t!("id")`, `t!("id", name = value)` · `texts!()` – loads the program's `assets\i18n.json` · `LANGUAGES` · `set_language(lang)` · `language()` · `system_language()` · `check_ids(crate_dir)` for the test |
 | `manifest` *(M1)* | `Manifest::read(folder)` (`dist\program.json`, else `program.json`) · `Manifest::find(folder)` – the folder or one level below it · `Manifest::kind() -> Script/Kit/Exe/Classic` · `Text::{get(lang), key()}` · `ScriptOption` |
 | `build` *(M1)* | `build::manifest()` for `build.rs` (15.4): `program.json`, the facts for `meta!()`, and the resource with icon, name and version – written by hand as a `.res` file, so no resource compiler has to be installed |
-| `autostart` | `state(id) -> Off/On/DisabledByWindows` · `set(id, on)` · `repair(id)` |
-| `update` | `latest(repository) -> Option<Release>` · `install(release, folder, key)` |
+| `autostart` *(M3, built ahead)* | `read(id) -> Entry { state, target }` · `state(id) -> Off/On/DisabledByWindows` – also reads Windows' "switched off" note · `set(id, Some(exe) / None)` – `Some` switches a disabled entry back on · `repair(id, exe)` – re-points an entry whose exe no longer exists (moved folder), leaves one whose exe exists alone · `take_over(old_name, id, exe)` – the Python programs' entries · `ARGUMENT` (`--autostart`: started by Windows, no window) · direct registry calls in HKCU, no PowerShell |
+| `http` *(M3, built ahead)* | `get(url, headers, limit)` · `post_form(url, fields, limit)` · `Response::{status, body, ok(), text()}` · `encode(s)` – through WinHTTP (part of Windows: no crate, the PC's proxy and certificates); `https://` only, fixed user agent `windows-toolbox`, nothing about the user or the PC sent along |
+| `update` *(M3, built ahead)* | `latest(repository, id) -> Option<Release { version, zip, signature }>` · `download(release, key)` – checks the signature before anything else · `install(zip, folder, id, newer_than) -> Manifest` – the manifest inside the signed zip must name `id` and a newer version; names outside the folder or in `data\` refused; unpacked aside first, files in use put aside, a failed swap undone · `clean_up(folder)` – what an update put aside · `developer_copy(home)` – own builds are not updated · `verify`, `compare_versions`, `base64_encode/decode`, `zip::{write, read}` (stored + deflate, `miniz_oxide`) · `KEY` |
 | `setup` | `steps![…]` · `Step::{Winget, Download, Copy, Task}` · `pending() -> Vec<Step>` · `run(steps)` |
 
 **Crates used in M0** (looked up 2026-11-15): `eframe` / `egui` 0.37.0 (features in section 7),
 `egui_system_font_provider` 0.37.0 (through eframe's `system_fonts`), `windows-sys` 0.61.2, `serde` 1.0.229,
 `serde_json` 1.0.154; Rust 1.99.0, edition 2024. Added in M1 (looked up 2026-11-16): `rfd` 0.18.0 – the folder
-dialog of **Add program…**; only the Toolbox uses it. For later milestones, to be looked up again when used:
-`ed25519-dalek` (3.0.0 at the time of M0), an HTTPS client for updates and Discord Plus' login.
+dialog of **Add program…**; only the Toolbox uses it. Added ahead of M3 (looked up 2026-11-16): `ed25519-dalek`
+3.0.0 (signatures; the kit checks, `sign` signs), `miniz_oxide` 0.9.1 (deflate in release zips), `getrandom` 0.4.3
+(only `sign`, for the key). No HTTPS crate: `kit::http` uses WinHTTP.

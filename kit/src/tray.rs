@@ -282,6 +282,19 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     }
 }
 
+/// The hidden window of this process' tray thread, for `forget`.
+static WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+/// Removes icon `uid` at once, from any thread – for a process that is about to end: an icon that is not removed
+/// stays in the taskbar until the mouse moves over it.
+pub fn forget(uid: u32) {
+    let hwnd = WINDOW.load(Ordering::Relaxed);
+    if hwnd != 0 {
+        let n = nid(hwnd as HWND, uid);
+        unsafe { Shell_NotifyIconW(NIM_DELETE, &n) };
+    }
+}
+
 /// Creates the hidden window and returns a waker; then call `run_loop` on the same thread. Split in two so the
 /// caller can hand the waker to other threads before the loop starts.
 pub fn create(handler: impl FnMut(&mut Tray, Event) -> Vec<Item> + 'static) -> Waker {
@@ -293,6 +306,7 @@ pub fn create(handler: impl FnMut(&mut Tray, Event) -> Vec<Item> + 'static) -> W
         TASKBAR_CREATED.store(RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()), Ordering::Relaxed);
         // A normal (never shown) top-level window, not a message-only one: only those receive TaskbarCreated.
         let hwnd = CreateWindowExW(0, class.as_ptr(), class.as_ptr(), 0, 0, 0, 0, 0, null_mut(), null_mut(), inst, null());
+        WINDOW.store(hwnd as isize, Ordering::Relaxed);
         HANDLER.with(|h| *h.borrow_mut() = Some((Tray { hwnd, icons: vec![] }, Box::new(handler))));
         Waker(hwnd as isize)
     }

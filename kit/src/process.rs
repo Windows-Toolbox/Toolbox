@@ -182,6 +182,36 @@ pub fn open(target: &str) -> bool {
     shell_execute("open", target, None)
 }
 
+/// Puts a text into the clipboard – what a "Copy" button of a page does.
+pub fn copy_text(text: &str) -> bool {
+    use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+    use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
+    const CF_UNICODETEXT: u32 = 13;
+    let data = wide(text);
+    unsafe {
+        if OpenClipboard(null_mut()) == 0 {
+            return false;
+        }
+        EmptyClipboard();
+        let memory = GlobalAlloc(GMEM_MOVEABLE, data.len() * 2);
+        let mut ok = false;
+        if !memory.is_null() {
+            let target = GlobalLock(memory) as *mut u16;
+            if !target.is_null() {
+                std::ptr::copy_nonoverlapping(data.as_ptr(), target, data.len());
+                GlobalUnlock(memory);
+                // From here on the memory belongs to Windows.
+                ok = !SetClipboardData(CF_UNICODETEXT, memory as HANDLE).is_null();
+            }
+            if !ok {
+                GlobalFree(memory);
+            }
+        }
+        CloseClipboard();
+        ok
+    }
+}
+
 /// Starts a program with admin rights; Windows asks first (UAC). `false` if the question was declined.
 pub fn run_elevated(exe: &Path) -> bool {
     shell_execute("runas", &exe.to_string_lossy(), exe.parent())
