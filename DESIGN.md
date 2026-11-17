@@ -159,7 +159,8 @@ Windows Toolbox/                just a folder, not a repo
 ├─ Discord Plus/                same shape
 ├─ Cube Game/                   same shape
 ├─ Last Bastion/                already its own repo; only gets a program.json
-└─ Rayman Legends/              program.json + rayman_borderless.ps1 – two files, nothing to build (+ .gitignore for data\)
+├─ Rayman Legends/              program.json + rayman_borderless.ps1 – two files, nothing to build (+ .gitignore for data\)
+└─ Screen Zones/                same shape as Hardware Monitor – the successor of the Rayman script (section 11)
 ```
 
 **Names** (decided 2026-11-16): the folder carries the program's name; the GitHub repo the same with `-` for the
@@ -175,6 +176,7 @@ with `_`, so pipe, task and settings of the old and the new version meet.
 | Cube Game | `Cube Game` | `Windows-Toolbox/Cube-Game` | `CubeGame.exe` | `cube_game` |
 | Last Bastion | `Last Bastion` | `Windows-Toolbox/Last-Bastion` | `LastBastion.exe` | `last_bastion` |
 | Rayman Legends | `Rayman Legends` | `Windows-Toolbox/Rayman-Legends` | – (script) | `rayman_legends` |
+| Screen Zones | `Screen Zones` | `Windows-Toolbox/Screen-Zones` | `ScreenZones.exe` | `screen_zones` |
 | the kit | `Toolbox\kit` | inside `Toolbox` | – | crate `toolbox-kit` |
 
 GitHub addresses do not care about upper and lower case; still, every file writes them exactly as in this table,
@@ -921,7 +923,10 @@ What M1 showed or settled:
 - **Still to come, each with the milestone that needs it**: "Start with Windows" (built in M3, see there) and
   "Restart after a crash" (M3, with `kit::autostart`), Update and **Get programs** (M3), Set up / Uninstall (M4), an "Open" entry for a
   program's own window in the tray menu (M4), export / import, Start menu shortcut, clean up (M5). The gear holds
-  look and language, the list of programs, the tray icon's instructions and Quit.
+  look and language, the list of programs, the tray icon's instructions and Quit – and since 2026-11-17 **Restart
+  the Toolbox** (also in the tray under Quit ▸): the new agent gets the old one's process id (`--after <pid>`) and
+  waits until it has ended, otherwise it would find the old pipe and end at once; it starts the exe by its name, so
+  after `build.ps1` the new build runs; an open window opens again; the programs keep running.
 - **A window's icon**: eframe puts egui's own icon over ours one frame after the window appears. `kit::ui::viewport`
   hands eframe an empty icon, which makes it leave the window alone; `use_program_icon` then sets the one
   compiled into the exe.
@@ -988,6 +993,30 @@ and checked line by line. In this repo:
 Still open for M3: Update and **Get programs** (`programs.json`), the first signed release of Discord Plus,
 `template\`, and the hand test with the real Discord app (the ◐ points of Discord Plus' checklist). After that
 switch, `programs\discord_plus\` leaves this repo, as Rayman did in M2.
+
+**Screen Zones – built 2026-11-17, between the milestones.** The successor of the Rayman script that `KONZEPT.md` in
+the Rayman repo describes, as a kit program in its own repo (`..\Screen Zones\`, `Windows-Toolbox/Screen-Zones`):
+any game or program gets an entry and lands borderless in its zone at every start; the concept's steps 1–3
+(parity with the script, many games with "Add a game" from the open windows, keys for the active window – opt-in).
+Step 4 (admin games, keeping the mouse in the zone, own zones) and the extensions are listed in its README.
+What it settled here:
+
+- **Keys may be paths** (`games.0.zone`, 15.2) – the first page with a list whose entries each have their own
+  switches. `kit::page` only; the Toolbox passes keys on unchanged, so an older Toolbox shows the page as well
+  (checked with the `dist\Toolbox.exe` of M3's first part, in a sandbox).
+- **A worker with a Windows message loop**: window events and keys arrive as messages to the thread that asked for
+  them, so the worker cannot sleep in `Runtime::sleep`. A small helper thread does and posts a message to the worker
+  whenever it wakes (a `set`, an action, Start, Stop) – no polling, nothing new in the kit.
+- **The concept's open decisions** (asked 2026-11-17): name "Screen Zones"; the page lives in the Toolbox (the kit's
+  answer to the concept's "Python page or own window"); the exe is built, not kept in git (section 9); no tray
+  icon of its own (section 6). The keys were first Win+Alt+arrows – on the developer's PC all four turned out to be
+  taken already (most likely by Windows 11's own snapping), so the page offers a **choice**: Win+Ctrl+Alt (default,
+  hardly ever taken), Ctrl+Alt (turns the screen with some Intel drivers), Win+Alt. Windows does not tell who holds
+  a key; the program only finds out by trying, and gives every combination with a taken key a thin red frame – for
+  that a `choice` option may carry a `state` (15.2).
+- **Switching over**: at its first start it takes Rayman over from `..\Rayman Legends\` (entry, zone, Play target);
+  the Rayman script is then removed from the list, and its repo is retired once the hand test with the real game
+  passed.
 
 **M4 – Hardware Monitor in Rust.** Bridge as the only elevated part, status line and live displays in the tray,
 detail window (with the new blocks and the canvas from 4.5), settings, setup steps (PawnIO, LHM, task).
@@ -1169,7 +1198,11 @@ are always the same build, so they may change with any version and no program ma
 ### 15.2 Building blocks of a page
 
 Every block is an object with a `type`. A `key` is a field of the program's settings struct; `value` is its current
-value, filled in by the kit.
+value, filled in by the kit. A key may also be a **path** into the settings, its parts joined by `.`: a field of a
+field, or an entry of a list by its number – `games.0.zone` is the field `zone` of the first entry of the list
+`games`. So a program with a list of things (Screen Zones: one entry per game) gives each entry its own switches.
+The Toolbox only passes keys on, so this needs no newer Toolbox; a `set` for an entry that no longer exists is
+refused like an unknown key.
 
 | `type` | Fields | Drawn as |
 |---|---|---|
@@ -1178,7 +1211,7 @@ value, filled in by the kit.
 | `status` | `text`, `state` (`ok`/`warn`/`bad`) | a line with a coloured `●` |
 | `switch` | `label`, `key`, `value` (bool) | a checkbox; sends `set` with true/false |
 | `slider` | `label`, `key`, `value`, `min`, `max`, `step` (numbers), `unit` (string) | a slider with its value; the slider rule of 4.3 |
-| `choice` | `label`, `key`, `value`, `options` (list of `{"value","label"}`) | one button per option, the current one selected |
+| `choice` | `label`, `key`, `value`, `options` (list of `{"value","label"}`, optionally `"state"`: `warn`/`bad`) | one button per option, the current one selected; an option with a `state` gets a thin frame in that colour (added 2026-11-17 – an older Toolbox shows a plain button) |
 | `entry` | `label`, `key`, `value` (string), `secret` (bool, default false) | a one-line text field, dots if `secret`; sends `set` once when the field is left (click elsewhere, Tab, Enter) and only if the text changed – not per keystroke. While typing, pushed pages do not overwrite the field. |
 | `buttons` | `buttons` (list of `{"label","action"}`) | a row of buttons; each sends `action` |
 
@@ -1299,7 +1332,7 @@ here.
 | `lib` *(M1)* | `PROTOCOL` · `UPDATE_KEY` (15.6) · `Meta { id, version, dist, manifest }` · `meta!()` – the program's facts from its `Cargo.toml`, through its build script |
 | `app` *(M1)* | `trait Program { type Settings; const META; fn page(&self, &mut page::Builder, &Settings); fn status(&self, running: bool) -> Status; fn tray(&self) -> Tray; fn applied(&mut self, &Settings); fn action(&mut self, &str, &mut Settings) -> Option<String> – may change settings, which are then applied and saved like after a `set`; fn show(&mut self); fn shutdown(&mut self) }` · `run(program, worker)` – role, single instance, pipe, settings, delayed saving, the program's **own tray icon** while its workers run and no Toolbox carries its menu for 1.5 s (section 6: the line, its menu, Settings, Quit), `autostart::repair` and `update::clean_up` at start · `Runtime::{changed, running, wait_running, with, update, look}` · `Runtime::sleep(time)` – a worker's pause that a `set`, an action, Start or Stop end at once · `open_in_toolbox(id)` · `init(&meta)` – first thing in every exe: application id, data folder, panic → log · `data_dir()` · `program_dir()` · `log(msg)` · `message_box(title, text, error)` · `Look { language, theme, zoom }` · `WORKERS_OFF` · `data_dir_variable(id)` for tests |
 | `settings` *(M1)* | `Settings::<T>::load(path)` – missing fields default, invalid ones fall back one by one, unknown ones kept · `.value` · `.existed` · `.save()` (written aside, then renamed) · `extra(key)` / `set_extra(key, value)` – a value next to the struct's fields |
-| `page` *(M1)* | `Page { blocks }` · `Block` (15.2) · `Builder::{section, text, status, switch, slider, choice, entry, secret, buttons, finish}` · `apply_set(&settings, key, value) -> Result<T, String>` · `check_keys::<Settings>(page)` for the test |
+| `page` *(M1)* | `Page { blocks }` · `Block` (15.2) · `Builder::{section, text, status, switch, slider, choice, choice_marked, entry, secret, buttons, finish}` · `apply_set(&settings, key, value) -> Result<T, String>` · `lookup(&value, key)` – a key may be a path (`games.0.zone`, 15.2) · `check_keys::<Settings>(page)` for the test, `check_keys_with(&settings, page)` for a page whose keys point into a list |
 | `proto` *(M1)* | `Command`, `State`, `Status`, `Health`, `Tray`, `MenuEntry`, `Live`, `ToolboxHello`, `Want`, `AgentCommand`, `PROTOCOL` – the messages of 15.1 as serde types |
 | `ipc` *(M1)* | `pipe_name(id)` · `Server::bind(id)` (`AlreadyExists` = runs already) · `Server::accept()` · `connect(id)` · `connect_wait(id, timeout)` · `exists(id)` · `Conn::{send, send_line, read, read_line, close}` · `TOOLBOX` · `sandbox()` · `legacy::{listening(port), command(port, text, timeout)}` – the Python programs' ports, until the last one is ported |
 | `ui` *(M1)* | `theme(ctx, theme, zoom)` · `THEMES` · `PageView::show(ui, &Page) -> Vec<Command>` · `Toast::{show, ui}` · `link_target(&response, target)` / `hovered_target(ctx)` – the bottom bar · `viewport(title)` – how every window starts out · `use_program_icon()` · `no_window(title, error)` – the message when OpenGL is missing · `heading(ui, text)` · `section(ui, title, salt, add)` · `hint(ui, text)` · `bar_button(ui, text, chosen)` – the editor's building blocks · `ACCENT`, `GOOD`, `WARN`, `BAD`, `accent()`, `good()`, `warn()`, `bad()`, `muted()`, `health_color()` |

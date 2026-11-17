@@ -69,6 +69,10 @@ pub enum Block {
 pub struct ChoiceOption {
     pub value: Value,
     pub label: String,
+    /// A mark on the option: `warn` / `bad` draw a thin frame in that colour around its button (Screen Zones: a key
+    /// combination another program has taken). Without it, a plain button.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<Health>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -92,7 +96,7 @@ impl<'a> Builder<'a> {
 
     fn value(&mut self, key: &str) -> Value {
         self.keys.push(key.to_string());
-        self.settings.get(key).cloned().unwrap_or(Value::Null)
+        lookup(self.settings, key).cloned().unwrap_or(Value::Null)
     }
 
     pub fn section(&mut self, title: impl Into<String>, f: impl FnOnce(&mut Builder)) {
@@ -122,10 +126,16 @@ impl<'a> Builder<'a> {
 
     /// One button per option: `p.choice("Refresh", "rate", &[(0.5, "0.5 s"), (1.0, "1 s")])`.
     pub fn choice<V: Serialize, L: AsRef<str>>(&mut self, label: impl Into<String>, key: &str, options: &[(V, L)]) {
+        let marked: Vec<(&V, &L, Option<Health>)> = options.iter().map(|(v, l)| (v, l, None)).collect();
+        self.choice_marked(label, key, &marked);
+    }
+
+    /// Like `choice`, with a mark per option (`Some(Health::Bad)`: a thin red frame around its button).
+    pub fn choice_marked<V: Serialize, L: AsRef<str>>(&mut self, label: impl Into<String>, key: &str, options: &[(V, L, Option<Health>)]) {
         let value = self.value(key);
         let options = options
             .iter()
-            .map(|(v, l)| ChoiceOption { value: serde_json::to_value(v).unwrap_or(Value::Null), label: l.as_ref().into() })
+            .map(|(v, l, state)| ChoiceOption { value: serde_json::to_value(v).unwrap_or(Value::Null), label: l.as_ref().into(), state: *state })
             .collect();
         self.blocks.push(Block::Choice { label: label.into(), key: key.into(), value, options });
     }
@@ -165,33 +175,57 @@ impl ButtonRow {
     }
 }
 
+/// The value a key names. A key is a field of the settings – or a path into them, its parts joined by `.`: a
+/// field of a field, or an element of a list by its number (`games.0.zone`: the field `zone` of the first entry of
+/// the list `games`). So a program with a list of things gives each entry its own switches.
+pub fn lookup<'v>(settings: &'v Value, key: &str) -> Option<&'v Value> {
+    key.split('.').try_fold(settings, |v, part| match v {
+        Value::Array(list) => list.get(part.parse::<usize>().ok()?),
+        _ => v.get(part),
+    })
+}
+
+fn lookup_mut<'v>(settings: &'v mut Value, key: &str) -> Option<&'v mut Value> {
+    key.split('.').try_fold(settings, |v, part| match v {
+        Value::Array(list) => list.get_mut(part.parse::<usize>().ok()?),
+        _ => v.get_mut(part),
+    })
+}
+
 /// Applies `set key value` to a settings struct – through JSON, so every field works without code per field.
-/// Refused (`Err` with the reason) if the key is no field or the value does not fit the field's type.
+/// Refused (`Err` with the reason) if the key is no field (a path: no field of that entry, or no such entry) or
+/// the value does not fit the field's type.
 pub fn apply_set<T: Serialize + DeserializeOwned>(settings: &T, key: &str, value: Value) -> Result<T, String> {
     let mut v = serde_json::to_value(settings).map_err(|e| e.to_string())?;
-    let obj = v.as_object_mut().ok_or("settings are no object")?;
-    if !obj.contains_key(key) {
-        return Err(format!("unknown setting '{key}'"));
+    if !v.is_object() {
+        return Err("settings are no object".into());
     }
+    let field = lookup_mut(&mut v, key).ok_or_else(|| format!("unknown setting '{key}'"))?;
     // A slider sends a float; an integer field takes it when it is whole.
-    let value = match (&obj[key], &value) {
+    let value = match (&*field, &value) {
         (Value::Number(old), Value::Number(new)) if (old.is_i64() || old.is_u64()) && new.is_f64() => {
             let f = new.as_f64().unwrap_or(0.0);
             if f.fract() == 0.0 { Value::from(f as i64) } else { value }
         }
         _ => value,
     };
-    obj.insert(key.to_string(), value);
+    *field = value;
     serde_json::from_value(v).map_err(|e| format!("'{key}': {e}"))
 }
 
 /// The test every program calls (DESIGN.md 13): every key the page names is a field of the settings –
 /// a typo would otherwise be a switch that does nothing.
 pub fn check_keys<T: Serialize + Default>(page: impl FnOnce(&mut Builder)) -> Result<(), String> {
-    let v = serde_json::to_value(T::default()).map_err(|e| e.to_string())?;
+    check_keys_with(&T::default(), page)
+}
+
+/// The same for given settings – for a page whose keys point into a list (`games.0.zone`): with an empty list
+/// the default settings would not show them.
+pub fn check_keys_with<T: Serialize>(settings: &T, page: impl FnOnce(&mut Builder)) -> Result<(), String> {
+    let v = serde_json::to_value(settings).map_err(|e| e.to_string())?;
     let mut b = Builder::new(&v);
     page(&mut b);
-    let missing: Vec<_> = b.keys.iter().filter(|k| v.get(k.as_str()).is_none()).cloned().collect();
+    let missing: Vec<_> = b.keys.iter().filter(|k| lookup(&v, k).is_none()).cloned().collect();
     if missing.is_empty() { Ok(()) } else { Err(format!("the page names keys that are no settings field: {missing:?}")) }
 }
 
@@ -225,7 +259,7 @@ mod tests {
         assert_eq!(json["blocks"][0]["type"], "section");
         assert_eq!(blocks[1], serde_json::json!({"type": "switch", "label": "On", "key": "on", "value": true}));
         assert_eq!(blocks[2]["value"], 3.0);
-        assert_eq!(blocks[3]["options"][1], serde_json::json!({"value": 2.0, "label": "two"}));
+        assert_eq!(blocks[3]["options"][1], serde_json::json!({"value": 2.0, "label": "two"}), "no mark, no field");
         assert_eq!(blocks[4]["buttons"][1]["action"], "stop");
 
         let v = serde_json::json!({"name": "Anna", "token": "s3cret"});
@@ -235,6 +269,18 @@ mod tests {
         let json = serde_json::to_value(b.finish()).unwrap();
         assert_eq!(json["blocks"][0], serde_json::json!({"type": "entry", "label": "Name", "key": "name", "value": "Anna", "secret": false}));
         assert_eq!(json["blocks"][1]["secret"], true);
+    }
+
+    #[test]
+    fn a_choice_can_mark_an_option() {
+        let v = serde_json::json!({"keys": "a"});
+        let mut b = Builder::new(&v);
+        b.choice_marked("Keys", "keys", &[("a", "A", None), ("b", "B", Some(Health::Bad))]);
+        let json = serde_json::to_value(b.finish()).unwrap();
+        assert_eq!(json["blocks"][0]["options"][1], serde_json::json!({"value": "b", "label": "B", "state": "bad"}));
+        // A page from an older program, without marks, still reads.
+        let p: Page = serde_json::from_str(r#"{"blocks":[{"type":"choice","label":"","key":"k","value":1,"options":[{"value":1,"label":"x"}]}]}"#).unwrap();
+        assert!(matches!(&p.blocks[0], Block::Choice { options, .. } if options[0].state.is_none()));
     }
 
     #[test]
@@ -253,6 +299,40 @@ mod tests {
         assert!(apply_set(&s, "nope", serde_json::json!(1)).is_err());
         assert!(apply_set(&s, "on", serde_json::json!(true)).unwrap().on);
         assert_eq!(apply_set(&s, "rate", serde_json::json!(1)).unwrap().rate, 1.0);
+    }
+
+    #[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
+    #[serde(default)]
+    struct Game {
+        zone: String,
+        delay: u32,
+    }
+    #[derive(Serialize, Deserialize, Default)]
+    #[serde(default)]
+    struct WithList {
+        games: Vec<Game>,
+    }
+
+    #[test]
+    fn a_key_can_point_into_a_list() {
+        let s = WithList { games: vec![Game { zone: "left".into(), delay: 3 }, Game { zone: "right".into(), delay: 0 }] };
+        let v = serde_json::to_value(&s).unwrap();
+        let mut b = Builder::new(&v);
+        b.choice("Zone", "games.1.zone", &[("left", "Left"), ("right", "Right")]);
+        assert_eq!(serde_json::to_value(b.finish()).unwrap()["blocks"][0]["value"], "right");
+
+        let s = apply_set(&s, "games.1.zone", serde_json::json!("left")).unwrap();
+        assert_eq!(s.games[1].zone, "left");
+        // The slider rule holds inside a list too.
+        assert_eq!(apply_set(&s, "games.0.delay", serde_json::json!(5.0)).unwrap().games[0].delay, 5);
+        assert!(apply_set(&s, "games.2.zone", serde_json::json!("left")).is_err(), "no such entry");
+        assert!(apply_set(&s, "games.x.zone", serde_json::json!("left")).is_err());
+        assert!(apply_set(&s, "games.0.nope", serde_json::json!(1)).is_err());
+        assert!(apply_set(&s, "games.0.delay", serde_json::json!("soon")).is_err());
+
+        assert!(check_keys_with(&s, |p| p.switch("x", "games.1.zone")).is_ok());
+        assert!(check_keys_with(&s, |p| p.switch("x", "games.2.zone")).is_err());
+        assert!(check_keys::<WithList>(|p| p.switch("x", "games.0.zone")).is_err(), "the default list is empty");
     }
 
     #[test]

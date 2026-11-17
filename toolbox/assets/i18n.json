@@ -28,6 +28,10 @@
     "de": "Toolbox und alle Programme",
     "en": "Toolbox and all programs"
   },
+  "toolbox.restart": {
+    "de": "Toolbox neu starten",
+    "en": "Restart the Toolbox"
+  },
 
   "status.running": {
     "de": "Läuft",

@@ -601,6 +601,9 @@ impl App {
                 if log.exists() {
                     open_button(ui, t!("page.open_log"), &log.to_string_lossy());
                 }
+                if ui.button(t!("toolbox.restart")).clicked() {
+                    self.ask(Ask::RestartToolbox);
+                }
                 if ui.button(t!("gear.quit")).clicked() {
                     self.ask(Ask::Quit { all: false });
                 }

@@ -194,7 +194,7 @@ pub fn script_page(entry: &Entry, language: &str) -> Page {
             .map(|value| {
                 let text = value_text(value);
                 let label = option.value_labels.get(&text).map(|l| l.get(language).to_string()).filter(|l| !l.is_empty()).unwrap_or(text);
-                ChoiceOption { value: value.clone(), label }
+                ChoiceOption { value: value.clone(), label, state: None }
             })
             .collect();
         let value = entry.options.get(name).cloned().unwrap_or_else(|| option.default.clone());

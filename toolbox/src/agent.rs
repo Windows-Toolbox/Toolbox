@@ -52,6 +52,8 @@ enum Choice {
     /// An entry the program put into its menu: program id, action name.
     Program(String, String),
     Quit { all: bool },
+    /// The Toolbox ends and starts anew; the programs keep running.
+    RestartToolbox,
 }
 
 struct Agent {
@@ -70,6 +72,8 @@ struct Agent {
     menu: Vec<Choice>,
     /// Somebody asked the agent to end (`quit` on the pipe); the tray thread does it.
     quit: Option<bool>,
+    /// … and to start anew right after (`restart_toolbox`).
+    relaunch: bool,
     waker: Option<Waker>,
     /// The library as it was last sent to the window – unchanged, it is not sent again.
     last_sent: String,
@@ -491,6 +495,14 @@ fn handle(shared: &Shared, ask: Ask) {
                 waker.wake();
             }
         }
+        Ask::RestartToolbox => {
+            let mut a = lock(shared);
+            a.quit = Some(false);
+            a.relaunch = true;
+            if let Some(waker) = a.waker {
+                waker.wake();
+            }
+        }
         Ask::Look { language, theme, zoom } => {
             let mut a = lock(shared);
             // What is invalid leaves that part as it is.
@@ -726,7 +738,11 @@ fn build_menu(a: &mut Agent) -> Vec<Item> {
     if !a.programs.is_empty() {
         items.push(Item::Separator);
     }
-    let quit = vec![entry(t!("tray.quit.toolbox"), Choice::Quit { all: false }), entry(t!("tray.quit.all"), Choice::Quit { all: true })];
+    let quit = vec![
+        entry(t!("tray.quit.toolbox"), Choice::Quit { all: false }),
+        entry(t!("tray.quit.all"), Choice::Quit { all: true }),
+        entry(t!("toolbox.restart"), Choice::RestartToolbox),
+    ];
     items.push(Item::Sub { label: t!("tray.quit"), items: quit });
     a.menu = choices;
     items
@@ -745,6 +761,28 @@ fn quit_now(a: &mut Agent, all: bool) {
     a.tell(&Tell::Bye);
 }
 
+/// "Restart the Toolbox": starts the new agent, which waits until this one has ended. A window that is open now
+/// opens again; with none, the new agent stays in the tray.
+fn relaunch(a: &Agent) {
+    let exe = own_exe();
+    let pid = std::process::id().to_string();
+    let mut args = vec![crate::AFTER, pid.as_str()];
+    if a.windows.is_empty() {
+        args.push(crate::BACKGROUND);
+    }
+    if let Err(e) = process::spawn(&exe, &args) {
+        app::log(&format!("the Toolbox could not be started again: {e}"));
+    }
+}
+
+/// The Toolbox's exe by its name – not necessarily the running file: `build.ps1` renames a running exe aside
+/// (`Toolbox.<time>.old.exe`) and puts the new build under the name; a restart is meant to start that one.
+fn own_exe() -> PathBuf {
+    let running = std::env::current_exe().unwrap_or_default();
+    let named = kit::manifest::Manifest::parse(crate::META.manifest).ok().and_then(|m| m.exe).and_then(|exe| Some(running.parent()?.join(exe)));
+    named.filter(|p| p.is_file()).unwrap_or(running)
+}
+
 fn chosen(shared: &Shared, tray: &mut Tray, choice: Choice) {
     match choice {
         Choice::Open(id) => open_window(&mut lock(shared), id),
@@ -758,6 +796,12 @@ fn chosen(shared: &Shared, tray: &mut Tray, choice: Choice) {
         }
         Choice::Quit { all } => {
             quit_now(&mut lock(shared), all);
+            tray.quit();
+        }
+        Choice::RestartToolbox => {
+            let mut a = lock(shared);
+            quit_now(&mut a, false);
+            relaunch(&a);
             tray.quit();
         }
     }
@@ -808,6 +852,7 @@ pub fn run(open: bool) {
         pending_show: None,
         menu: vec![],
         quit: None,
+        relaunch: false,
         waker: None,
         last_sent: String::new(),
         watching: false,
@@ -823,6 +868,9 @@ pub fn run(open: bool) {
                     let mut a = lock(&shared);
                     if let Some(all) = a.quit.take() {
                         quit_now(&mut a, all);
+                        if std::mem::take(&mut a.relaunch) {
+                            relaunch(&a);
+                        }
                         tray.quit();
                     } else {
                         show_icons(&a, tray, &mut live_shown);
@@ -903,6 +951,7 @@ mod tests {
             pending_show: None,
             menu: vec![],
             quit: None,
+            relaunch: false,
             waker: None,
             last_sent: String::new(),
             watching: false,
@@ -940,14 +989,15 @@ mod tests {
                 "○ Rayman > Play",
                 "● Game > Running",
                 "-",
-                "Quit > Only the Toolbox | Toolbox and all programs",
+                "Quit > Only the Toolbox | Toolbox and all programs | Restart the Toolbox",
             ]
         );
         assert_eq!(a.menu[0], Choice::Open(None));
         assert_eq!(a.menu[1], Choice::Open(Some("monitor".into())));
         assert_eq!(a.menu[3], Choice::Stop("monitor".into()));
         assert_eq!(a.menu[4], Choice::Start("rayman".into()));
-        assert_eq!(a.menu.last(), Some(&Choice::Quit { all: true }));
+        assert_eq!(a.menu.last(), Some(&Choice::RestartToolbox));
+        assert!(own_exe().is_file());
         // The ids are the positions: the fourth entry is "Stop" of the monitor.
         let Item::Sub { items, .. } = &menu[2] else { panic!() };
         assert!(matches!(&items[2], Item::Entry { id: 4, .. }));

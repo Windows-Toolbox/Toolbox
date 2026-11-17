@@ -232,7 +232,13 @@ impl PageView {
                         ui.label(label);
                     }
                     for o in options {
-                        if ui.selectable_label(&o.value == value, &o.label).clicked() && &o.value != value {
+                        let r = ui.selectable_label(&o.value == value, &o.label);
+                        // A marked option (15.2): a thin frame in its colour.
+                        if let Some(state @ (Health::Warn | Health::Bad)) = o.state {
+                            let radius = ui.visuals().widgets.inactive.corner_radius;
+                            ui.painter().rect_stroke(r.rect, radius, egui::Stroke::new(1.0, health_color(ui, state)), egui::StrokeKind::Inside);
+                        }
+                        if r.clicked() && &o.value != value {
                             out.push(Command::Set { key: key.clone(), value: o.value.clone() });
                         }
                     }

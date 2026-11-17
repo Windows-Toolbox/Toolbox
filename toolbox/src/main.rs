@@ -16,6 +16,11 @@ pub const META: kit::Meta = kit::meta!();
 pub const WINDOW: &str = "--window";
 /// The agent starts without opening the window (start with Windows; tests).
 pub const BACKGROUND: &str = "--background";
+/// "Restart the Toolbox": the new agent first waits until the old one (this process id) has ended – otherwise it
+/// would find the old one's pipe, take it for a running Toolbox and end at once. `--after <pid>`.
+pub const AFTER: &str = "--after";
+/// How long the new agent waits for the old one at most.
+const AFTER_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn main() {
     kit::texts!();
@@ -24,6 +29,10 @@ fn main() {
     if args.first().is_some_and(|a| a == WINDOW) {
         window::run(args.get(1).cloned());
     } else {
+        let after = args.iter().position(|a| a == AFTER).and_then(|i| args.get(i + 1)?.parse::<u32>().ok());
+        if let Some(pid) = after {
+            kit::process::wait_exit(pid, AFTER_WAIT);
+        }
         agent::run(!args.iter().any(|a| a == BACKGROUND));
     }
 }
