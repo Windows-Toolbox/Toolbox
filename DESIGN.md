@@ -1144,8 +1144,8 @@ elsewhere), same texts; its README holds the checklist. What it settled:
 - 3 MB instead of a Python runtime of 115 MB. Tests without a window: a bot plays every level for 2½ minutes with the
   whole skill tree and draws every frame into memory.
 
-Open: the hand test (Play, Stop, playing a run in the real window); then `programs\cube_game\` leaves this repo, and
-after M4 `runtime\` and `setup\` with it.
+Hand test passed 2026-11-18 (Play, Stop, a run in the real window); `programs\cube_game\` and pygame left this repo
+then, `runtime\` and `setup\` follow after M4.
 
 **M6 – Wrap-up.** README/EXPLANATION rewritten for the new structure; whatever daily use shows to be missing.
 

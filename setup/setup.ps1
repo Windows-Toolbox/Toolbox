@@ -833,7 +833,7 @@ function Install-Steps($before, $ids, $Selection, $withMonitor, $run, $shortcuts
     & $RuntimePy -m pip install --disable-pip-version-check --no-warn-script-location --quiet `
         -r (Join-Path $Root 'requirements.txt')
     if ($LASTEXITCODE -ne 0) { throw 'Packages could not be installed' }
-    & $RuntimePy -c 'import tkinter, customtkinter, pystray, PIL, clr, pygame'
+    & $RuntimePy -c 'import tkinter, customtkinter, pystray, PIL, clr'
     if ($LASTEXITCODE -ne 0) { throw 'runtime\ is incomplete – delete the folder runtime\ and set up again' }
     Ok 'Packages complete'
 
