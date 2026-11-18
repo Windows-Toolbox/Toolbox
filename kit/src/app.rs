@@ -208,6 +208,18 @@ impl<P: Program> Runtime<P> {
         self.lock().running
     }
 
+    /// The worker has ended its work by itself (a game whose window was closed): the workers are off, as after
+    /// `stop`. With nobody looking at the page the program then ends (`bye`); a shown page keeps it, and Start runs
+    /// the worker's work again.
+    pub fn stop(&self) {
+        let mut g = self.lock();
+        if g.running {
+            g.running = false;
+            self.inner.1.notify_all();
+            push(&mut g, false, None);
+        }
+    }
+
     /// Blocks until the workers are switched on – what a worker does while the program only serves its page.
     pub fn wait_running(&self) {
         let mut g = self.lock();

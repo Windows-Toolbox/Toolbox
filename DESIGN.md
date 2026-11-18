@@ -160,7 +160,8 @@ Windows Toolbox/                just a folder, not a repo
 ├─ Cube Game/                   same shape
 ├─ Last Bastion/                already its own repo; only gets a program.json
 ├─ Rayman Legends/              program.json + rayman_borderless.ps1 – two files, nothing to build (+ .gitignore for data\)
-└─ Screen Zones/                same shape as Hardware Monitor – the successor of the Rayman script (section 11)
+├─ Screen Zones/                same shape as Hardware Monitor – the successor of the Rayman script (section 11)
+└─ Steam Shortcuts/             same shape – games into Steam, desktop icons onto Steam (section 11)
 ```
 
 **Names** (decided 2026-11-16): the folder carries the program's name; the GitHub repo the same with `-` for the
@@ -177,6 +178,7 @@ with `_`, so pipe, task and settings of the old and the new version meet.
 | Last Bastion | `Last Bastion` | `Windows-Toolbox/Last-Bastion` | `LastBastion.exe` | `last_bastion` |
 | Rayman Legends | `Rayman Legends` | `Windows-Toolbox/Rayman-Legends` | – (script) | `rayman_legends` |
 | Screen Zones | `Screen Zones` | `Windows-Toolbox/Screen-Zones` | `ScreenZones.exe` | `screen_zones` |
+| Steam Shortcuts | `Steam Shortcuts` | `Windows-Toolbox/Steam-Shortcuts` | `SteamShortcuts.exe` | `steam_shortcuts` |
 | the kit | `Toolbox\kit` | inside `Toolbox` | – | crate `toolbox-kit` |
 
 GitHub addresses do not care about upper and lower case; still, every file writes them exactly as in this table,
@@ -794,7 +796,7 @@ can find them: Gear → Clean up lists the entries whose program no longer exist
 | **Last Bastion** | page in this repo | manifest moves to its repo | nothing of it remains here |
 | **Discord Plus** | Python, pystray, TCP | small | Discord's own pipe (`\\.\pipe\discord-ipc-0`) is a few lines in Rust; the login needs one small HTTPS client crate. Good first real kit program. |
 | **Hardware Monitor** | Python, pythonnet → LibreHardwareMonitor (.NET) | large | see below |
-| **Cube Game** | Python, pygame-ce | largest | → macroquad, the engine already known from Last Bastion. Last, because it is the only reason Python stays installed. |
+| **Cube Game** | Python, pygame-ce | largest | ported 2026-11-18 (M5, ahead of M4): own Win32 windows + tiny-skia, not macroquad – see M5 in section 11 |
 
 ### Hardware Monitor – the one hard question
 
@@ -1064,12 +1066,86 @@ set a second ago – Screen Zones now reads the real flag in its regular look, a
 every entry, not only to virtual machines: it costs one call per held window and second and changes nothing for a
 window that keeps the flag.
 
+**Screen Zones – more per game (concept 2026-11-18, not built yet).** Worked out on the same board as Steam
+Shortcuts (below); what stays with Screen Zones because it is about windows:
+
+- **Recognised by: several programs** (`exes`, a list instead of `exe`; an old `exe` is read as a list of one).
+  Each is put into the zone; one may be marked *launcher* – started, never placed. Added from the open windows, as
+  "Add a game" does.
+- **Launch parameters** for "Play" (`-windowed`).
+- **Mouse kept in the zone** while the game is active (`ClipCursor`; the README's "keeping the mouse locked in") –
+  a switch per entry, from step 4 of the concept.
+
+**Steam Shortcuts – built 2026-11-18.** The user's problem: the Steam Controller works only in games started through
+Steam. First planned inside Screen Zones (the board, both decided that way), then – with "point the desktop icons at
+Steam, and back" added – **a program of its own** (the user, the same day): its list comes from desktop shortcuts and
+programs, most of which need no zone, and nothing has to pass between the two – Screen Zones recognises a game by
+its program name, so a game started through Steam still lands in its zone; Screen Zones' "Play opens" can simply
+hold the Steam address (Steam Shortcuts has "Copy the Steam address"). Own repo `..\Steam Shortcuts\`, a kit
+program with a background worker; its README holds the details and the checklist. What it settled:
+
+- **Steam's list** of non-Steam games is `userdata\<account>\config\shortcuts.vdf` (binary VDF); the account is
+  the one signed in now (`HKCU\Software\Valve\Steam\ActiveProcess\ActiveUser`), else the last one
+  (`config\loginusers.vdf`). The program reads and writes the whole file, keeps every part it does not know byte
+  for byte, and only adds, changes and removes entries with its own numbers – a test rebuilds the user's real file
+  from what was read, byte for byte, without writing it. A copy goes into `data\steam-backup\` before every write.
+- **Only while Steam is closed** – Steam writes its own copy back when it quits. Steam closed: written at once.
+  Steam running: per entry **"Restart Steam and add"** (`steam.exe -shutdown`, wait, write, start) or **"Add when
+  Steam is closed"** (the user's choice instead of a global "collect" mode): the entry waits, a line above the list
+  names everything waiting with "Restart Steam now", and the worker (it looks every two seconds) writes it the moment
+  `steam.exe` is gone. Steam is never quit without a click. What waits is not stored separately: an entry *wants*
+  to be in Steam (or not), the list is read, the difference is what waits – an entry changed while in Steam waits to
+  be written again.
+- **Numbers**: made once as Steam made them for years (CRC-32 of exe and name, top bit set), kept afterwards;
+  `steam://rungameid/<number << 32 | 0x02000000>` starts the entry.
+- **Addresses** (`uplay://`, `battlenet://`, `com.epicgames.launcher://`) go to Steam as the program Windows opens
+  them with (`HKEY_CLASSES_ROOT\<scheme>\shell\open\command`), the address as option: what a launcher started
+  through Steam starts gets Steam Input too – tried by the user with Ubisoft Connect and Rayman Legends. Not yet
+  checked: a launcher already running outside Steam probably takes the game over without Steam Input; the page says
+  so.
+- **Desktop**: `.lnk` files are read directly (MS-SHLLINK: link info, strings, environment block), `.url` as text.
+  Pointing an icon at Steam moves the original into `data\desktop-backup\<entry>\` and writes a `.url` with the
+  same name and icon; putting it back restores the very file. A `.url` is only ever deleted if it holds a
+  `steam://rungameid/` address. Shortcuts on the desktop of all users need administrator rights – the page says so
+  instead of asking for them (no bridge for this).
+- **Icon places** (the user's wish after the hand test): a replaced shortcut is a new file to Explorer and would land
+  on the next free place, so the old one's place is read before and set after – through Explorer's `IFolderView`
+  (`GetItemPosition`, `SelectAndPositionItems`), the only part that needs the `windows` crate (COM wrappers
+  windows-sys lacks). Checked on the real desktop with a throw-away shortcut moved away from the first free place.
+- **Hand test passed** (2026-11-18): Rayman through Ubisoft Connect into the real Steam, Steam restarted, desktop
+  icon pointed at Steam and back, the controller worked.
+
 **M4 – Hardware Monitor in Rust.** Bridge as the only elevated part, status line and live displays in the tray,
 detail window (with the new blocks and the canvas from 4.5), settings, setup steps (PawnIO, LHM, task).
 After this, `ToolboxClassic.exe` has no page left to show and is deleted together with `toolbox\*.py`.
 
 **M5 – Cube Game in Rust; Python leaves.** Then `runtime\`, `requirements.txt`, `setup\`, `Setup.exe`,
 `Uninstall.exe` are deleted and the release zip + updater (section 9) become the only way to install.
+
+**M5, the game – built 2026-11-18, ahead of M4** (the user's decision: getting rid of `runtime\` was one of the main
+points). Cube Game lives in its own repo (`..\Cube Game\`, `Windows-Toolbox/Cube-Game`), ported 1:1 from the Python
+version – same behaviour, same data files (`content\`, read from the repo on the developer PC, compiled in
+elsewhere), same texts; its README holds the checklist. What it settled:
+
+- **Not macroquad.** The game window *is* the arena: position, size and picture change every frame, in one step
+  (`UpdateLayeredWindow`) – done separately, Windows redraws in between and the window jumps (the Python version
+  measured flicker in 56 % of moving frames). It also opens passive extra windows (watchtower, radar) that never take
+  the focus, and locks the mouse into several rectangles. macroquad has one GPU window and none of that. So: own
+  Win32 windows (`windows-sys`, as in the kit), drawing in software with **tiny-skia** straight into the window's
+  bitmap (channel order blue/green/red throughout, so nothing is copied), text with **fontdue** in pygame's built-in
+  font. pygame's rules are kept where the game's look rests on them: `Rect` cuts values off, `FRect` is `f32`, shapes
+  replace pixels and only blits mix. Checked: menus and skill tree pixel-close to the Python version, the first two
+  seconds of a run equal to the decimal.
+- **A kit program without background role.** Play (or a double-click) switches the workers on: the worker runs the
+  game on its thread until the window closes; Stop closes the window. For that the kit got `Runtime::stop` – the
+  worker ends its work itself (15.7). With nobody looking at the page the program then ends with `bye`.
+- **Progress** in `dist\data\profile.json`, carried over once from the classic Toolbox's `data\cube_game.json`; the
+  page's two settings in the kit's `settings.json`; own enemy pictures in `dist\data\images\`.
+- 3 MB instead of a Python runtime of 115 MB. Tests without a window: a bot plays every level for 2½ minutes with the
+  whole skill tree and draws every frame into memory.
+
+Open: the hand test (Play, Stop, playing a run in the real window); then `programs\cube_game\` leaves this repo, and
+after M4 `runtime\` and `setup\` with it.
 
 **M6 – Wrap-up.** README/EXPLANATION rewritten for the new structure; whatever daily use shows to be missing.
 
@@ -1260,6 +1336,10 @@ refused like an unknown key.
 | `choice` | `label`, `key`, `value`, `options` (list of `{"value","label"}`, optionally `"state"`: `warn`/`bad`) | one button per option, the current one selected; an option with a `state` gets a thin frame in that colour (added 2026-11-17 – an older Toolbox shows a plain button) |
 | `entry` | `label`, `key`, `value` (string), `secret` (bool, default false) | a one-line text field, dots if `secret`; sends `set` once when the field is left (click elsewhere, Tab, Enter) and only if the text changed – not per keystroke. While typing, pushed pages do not overwrite the field. |
 | `buttons` | `buttons` (list of `{"label","action"}`) | a row of buttons; each sends `action` |
+| `list` | `key` (string, tells lists apart), `items`, `groups` (list of `{"id","label","open"}`, in their order), `sorts` (list of `{"id","label"}`), `add` (`{"label","blocks"}`, optional), `empty` (text while there is no item). An item: `id` (stable), `title`, `subtitle`, `state` (`ok`/`warn`/`bad`/`unknown`) and `text` (the dot and what it means), `group`, `tags` (list of short texts), `button` (`{"label","action"}`, optional), `order` (`{"sort id": number}`, smaller first, missing last), `blocks` | many entries; two switches the user combines: Groups (a folding heading per group, else one list with chips per group) and Detail (the chosen entry beside the list, under it when narrow; else it opens under its row, one at a time); filter field (Ctrl+F), sort menu ("Active first" by the order of `groups`, the program's `sorts`, A–Z) – all worked out in the renderer, nothing is sent; rows do not reorder while the mouse is over them; an entry that is new or changed its group is marked for a moment (added 2026-11-18, section 11) |
+
+A `section` may carry `"open": false` – it starts folded (missing = open, as before 2026-11-18). A `slider` or
+`entry` whose label and control do not fit side by side puts the label above.
 
 Unknown `type` → a line "This part of the page needs a newer Toolbox". Blocks still to come (4.5) get their fields
 here when they are built: `combo`, `tabs`, `table`, `graph`, `canvas`.
@@ -1380,7 +1460,7 @@ here.
 | Module | Public functions |
 |---|---|
 | `lib` *(M1)* | `PROTOCOL` · `UPDATE_KEY` (15.6) · `Meta { id, version, dist, manifest }` · `meta!()` – the program's facts from its `Cargo.toml`, through its build script |
-| `app` *(M1)* | `trait Program { type Settings; const META; fn page(&self, &mut page::Builder, &Settings); fn status(&self, running: bool) -> Status; fn tray(&self) -> Tray; fn applied(&mut self, &Settings); fn action(&mut self, &str, &mut Settings) -> Option<String> – may change settings, which are then applied and saved like after a `set`; fn show(&mut self); fn shutdown(&mut self) }` · `run(program, worker)` – role, single instance, pipe, settings, delayed saving, the program's **own tray icon** while its workers run and no Toolbox carries its menu for 1.5 s (section 6: the line, its menu, Settings, Quit), `autostart::repair` and `update::clean_up` at start · `Runtime::{changed, running, wait_running, with, update, look}` · `Runtime::sleep(time)` – a worker's pause that a `set`, an action, Start or Stop end at once · `open_in_toolbox(id)` · `init(&meta)` – first thing in every exe: application id, data folder, panic → log · `data_dir()` · `program_dir()` · `log(msg)` · `message_box(title, text, error)` · `Look { language, theme, zoom }` · `WORKERS_OFF` · `data_dir_variable(id)` for tests |
+| `app` *(M1)* | `trait Program { type Settings; const META; fn page(&self, &mut page::Builder, &Settings); fn status(&self, running: bool) -> Status; fn tray(&self) -> Tray; fn applied(&mut self, &Settings); fn action(&mut self, &str, &mut Settings) -> Option<String> – may change settings, which are then applied and saved like after a `set`; fn show(&mut self); fn shutdown(&mut self) }` · `run(program, worker)` – role, single instance, pipe, settings, delayed saving, the program's **own tray icon** while its workers run and no Toolbox carries its menu for 1.5 s (section 6: the line, its menu, Settings, Quit), `autostart::repair` and `update::clean_up` at start · `Runtime::{changed, running, wait_running, with, update, look}` · `Runtime::stop()` – the worker ends its work itself (a game whose window was closed): workers off, and the program ends once nobody looks at its page (M5) · `Runtime::sleep(time)` – a worker's pause that a `set`, an action, Start or Stop end at once · `open_in_toolbox(id)` · `init(&meta)` – first thing in every exe: application id, data folder, panic → log · `data_dir()` · `program_dir()` · `log(msg)` · `message_box(title, text, error)` · `Look { language, theme, zoom }` · `WORKERS_OFF` · `data_dir_variable(id)` for tests |
 | `settings` *(M1)* | `Settings::<T>::load(path)` – missing fields default, invalid ones fall back one by one, unknown ones kept · `.value` · `.existed` · `.save()` (written aside, then renamed) · `extra(key)` / `set_extra(key, value)` – a value next to the struct's fields |
 | `page` *(M1)* | `Page { blocks }` · `Block` (15.2) · `Builder::{section, text, status, switch, slider, choice, choice_marked, entry, secret, buttons, finish}` · `apply_set(&settings, key, value) -> Result<T, String>` · `lookup(&value, key)` – a key may be a path (`games.0.zone`, 15.2) · `check_keys::<Settings>(page)` for the test, `check_keys_with(&settings, page)` for a page whose keys point into a list |
 | `proto` *(M1)* | `Command`, `State`, `Status`, `Health`, `Tray`, `MenuEntry`, `Live`, `ToolboxHello`, `Want`, `AgentCommand`, `PROTOCOL` – the messages of 15.1 as serde types |
