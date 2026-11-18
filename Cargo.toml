@@ -6,6 +6,7 @@ members = ["kit", "toolbox", "demo", "sign"]
 [workspace.package]
 edition = "2024"
 repository = "https://github.com/Windows-Toolbox/Toolbox"
+license = "MIT"
 
 # Versions looked up 2026-11-16 (DESIGN.md 15.7).
 [workspace.dependencies]
