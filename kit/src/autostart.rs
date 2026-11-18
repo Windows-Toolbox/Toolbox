@@ -160,22 +160,6 @@ pub fn repair(id: &str, exe: &Path) -> bool {
     unsafe { RegSetValueExW(key.0, wide(&name).as_ptr(), 0, REG_SZ, data.as_ptr() as *const u8, (data.len() * 2) as u32) == ERROR_SUCCESS }
 }
 
-/// Takes over the entry an older version of a program made under another name (the Python programs: `"autostart"`
-/// in their manifest): if it exists, it is removed, and – unless there is an entry of ours already – `exe` starts
-/// with Windows instead. `true` if there was such an entry.
-pub fn take_over(old_name: &str, id: &str, exe: &Path) -> bool {
-    if query(&key_path(RUN), old_name).is_none() {
-        return false;
-    }
-    let was_disabled = query(&key_path(APPROVED), old_name).is_some_and(|(_, note)| note.first().is_some_and(|b| b & 1 == 1));
-    if read(id).state == State::Off && !was_disabled {
-        let _ = set(id, Some(exe));
-    }
-    let _ = delete(&key_path(RUN), old_name);
-    let _ = delete(&key_path(APPROVED), old_name);
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,24 +228,6 @@ mod tests {
         let other = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32").join("ping.exe");
         assert!(!repair("demo", &other));
         assert_eq!(read("demo").target, Some(here));
-        forget();
-    }
-
-    #[test]
-    fn an_old_entry_under_another_name_is_taken_over() {
-        let _guard = sandboxed();
-        forget();
-        let exe = std::env::current_exe().unwrap();
-        assert!(!take_over("DiscordPlus", "discord_plus", &exe));
-        assert_eq!(state("discord_plus"), State::Off);
-
-        let key = open(&key_path(RUN), true).unwrap();
-        let old = wide("\"C:\\Old\\DiscordPlus.exe\"");
-        check(unsafe { RegSetValueExW(key.0, wide("DiscordPlus").as_ptr(), 0, REG_SZ, old.as_ptr() as *const u8, (old.len() * 2) as u32) }).unwrap();
-        assert!(take_over("DiscordPlus", "discord_plus", &exe));
-        assert_eq!(read("discord_plus"), Entry { state: State::On, target: Some(exe.clone()) });
-        assert!(query(&key_path(RUN), "DiscordPlus").is_none(), "the old entry is gone");
-        assert!(!take_over("DiscordPlus", "discord_plus", &exe));
         forget();
     }
 
