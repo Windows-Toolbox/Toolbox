@@ -952,7 +952,8 @@ classic Toolbox – and that the classic Toolbox no longer shows: `programs\raym
 
 What M2 showed or settled:
 
-- **Rayman Legends** (`..\Rayman Legends\`, repo `Windows-Toolbox/Rayman-Legends`): `program.json` with all texts in
+- **Rayman Legends** (`..\Rayman Legends\`, repo `Windows-Toolbox/Rayman-Legends` – deleted 2026-11-18, the example
+  now lies in `template\script\`, `KONZEPT.md` in Screen Zones): `program.json` with all texts in
   it (15.3 – no `i18n.json`), `rayman_borderless.ps1` without parameters – it reads `Pos` from its own
   `data\settings.json` at the start and while the game runs. Next to them only `.gitignore` (`/data/`) and
   `KONZEPT.md`, the older concept for a successor ("Screen Zones", written before this document; not planned yet).
@@ -1024,7 +1025,8 @@ What it settled here:
   that a `choice` option may carry a `state` (15.2).
 - **Switching over**: at its first start it takes Rayman over from `..\Rayman Legends\` (entry, zone, Play target);
   the Rayman script is then removed from the list, and its repo is retired once the hand test with the real game
-  passed.
+  passed. Done 2026-11-18: hand test passed, release v1.0.0; the repo was deleted, the script stays as the example
+  in `template\script\`, the concept as `KONZEPT.md` in Screen Zones.
 
 **Screen Zones – many entries (built 2026-11-18).** With dozens of entries the page breaks down:
 one section per entry, all open, in the order they were added, nothing to search. Worked out with a clickable

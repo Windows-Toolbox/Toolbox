@@ -10,7 +10,7 @@ Sammlung kleiner, selbst geschriebener Windows-Tools mit einer gemeinsamen Oberf
 | **Cube Game** | eigenes Repo `..\Cube Game\` | Arena-Shooter: Das Spielfenster schrumpft ständig, Schüsse gegen seine Ränder drücken sie wieder auf (WASD + Maus); in Rust, nur in der neuen Toolbox (`dist\Toolbox.exe`, **Programm hinzufügen…**) |
 | **Last Bastion** | eigenes Repo `..\Last Bastion\` | Echtzeit-Strategiespiel (StarCraft × They Are Billions × Factorio); nur in der neuen Toolbox (`dist\Toolbox.exe`, **Programm hinzufügen…**) – seine `program.json` liegt im Spiel-Repo |
 | **Screen Zones** | eigenes Repo `..\Screen Zones\` | Setzt Spiele und Programme rahmenlos in einen festen Bereich des Bildschirms (16:9 links/Mitte/rechts, 21:9, Hälften) und hält sie dort – ein Eintrag pro Spiel, bei jedem Start von selbst; nur in der neuen Toolbox |
-| **Rayman Legends** | eigenes Repo `..\Rayman Legends\` | abgelöst durch Screen Zones; bleibt als Beispiel für ein kleines Skript-Programm, siehe [Kleines Skript einbinden](#kleines-skript-einbinden) |
+| *Skript-Vorbild* | `template/script/` | das frühere Rayman-Legends-Skript (abgelöst durch Screen Zones) als Beispiel für ein kleines Skript-Programm, siehe [Kleines Skript einbinden](#kleines-skript-einbinden) |
 
 Jedes Tool hat in seinem Ordner eine eigene `README.md` mit Einrichtung, Bedienung und Technik.
 
@@ -236,7 +236,8 @@ Wert hinzufügen = Zeile schreiben, Wert weglassen = Zeile löschen. Die genauen
 
 Ein kleines PowerShell-Skript wird in der **neuen Toolbox** (`dist\Toolbox.exe`) zu einem Programm mit eigener Seite,
 ohne eine Zeile Oberflächen-Code. Es bekommt einen eigenen Ordner (gern ein eigenes Repo) neben der Toolbox, darin
-nur `program.json` und das Skript. Vorbild ist `..\Rayman Legends\`:
+nur `program.json` und das Skript. Vorbild ist `template\script\` (das frühere Rayman-Legends-Skript – zum
+Ausprobieren den Ordner kopieren und in der Toolbox hinzufügen):
 
 ```json
 {
