@@ -1,7 +1,7 @@
 //! The agent role (DESIGN.md 8): the one tray icon with every program's menu and status, the list of programs,
 //! and the pipe `windows-toolbox.toolbox`. It sleeps in the Windows message loop until a click or a message
-//! arrives; only while a window is open it looks once a second at what cannot report by itself (scripts, plain
-//! exes, the Python programs).
+//! arrives; only while a window is open it looks once a second at what cannot report by itself (scripts and plain
+//! exes).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -9,9 +9,9 @@ use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use kit::ipc::{self, Conn, legacy};
+use kit::ipc::{self, Conn};
 use kit::autostart;
-use kit::manifest::{Kind, Manifest};
+use kit::manifest::Kind;
 use kit::process::{self, Job};
 use kit::proto::{Command, Health, PROTOCOL, State, ToolboxHello, Tray as ProgramTray, Want};
 use kit::settings::Settings;
@@ -19,7 +19,6 @@ use kit::tray::{self, Event, Icon, Item, Tray, Waker};
 use kit::{app, i18n, t};
 use windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
 
-use crate::classic::StartError;
 use crate::library::{self, Entry, Library, Missing, Run};
 use crate::talk::{Ask, Tell};
 
@@ -158,9 +157,9 @@ impl Agent {
         }
     }
 
-    /// Looks at what does not report by itself: scripts (their job), plain exes (their process), the Python
-    /// programs (their port), and "Start with Windows" – Task Manager can switch it off at any time. Kit programs
-    /// push their status. `true` if something changed.
+    /// Looks at what does not report by itself: scripts (their job), plain exes (their process), and "Start with
+    /// Windows" – Task Manager can switch it off at any time. Kit programs push their status. `true` if something
+    /// changed.
     fn refresh(&mut self) -> bool {
         let mut changed = false;
         for e in &mut self.programs {
@@ -171,7 +170,6 @@ impl Agent {
                 Kind::Kit => Some(false),
                 Kind::Script => Some(script_running(e.id())),
                 Kind::Exe => Some(e.exe().is_some_and(|exe| !process::running(&exe).is_empty())),
-                Kind::Classic => e.classic.as_ref().and_then(|c| c.running()),
             };
             if e.run.running != running {
                 // "Crashed" stays until the program runs again.
@@ -275,7 +273,7 @@ fn follow_running(shared: &Shared) {
 
 // ---------- start, stop, restart ----------
 
-/// Some of these wait (a Python program takes seconds to quit), so each runs on a thread of its own.
+/// Some of these wait (a restart waits until the program has ended), so each runs on a thread of its own.
 fn act(shared: &Shared, what: fn(&Shared, &str), id: String) {
     let shared = shared.clone();
     std::thread::spawn(move || {
@@ -330,12 +328,6 @@ fn start(shared: &Shared, id: &str) {
                 }
             }
         }
-        Kind::Classic => match entry.classic.as_ref().map(|c| c.start()) {
-            Some(Err(StartError::NoStarter)) => lock(shared).toast(t!("toast.no_starter", name = name_of(&entry)), true),
-            Some(Err(StartError::Declined)) => lock(shared).toast(t!("toast.declined", name = name_of(&entry)), true),
-            Some(Err(StartError::Failed(e))) => failed(e),
-            _ => {}
-        },
     }
 }
 
@@ -352,11 +344,6 @@ fn stop(shared: &Shared, id: &str) {
         Kind::Script => {
             if let Some(job) = Job::open(id) {
                 job.terminate();
-            }
-        }
-        Kind::Classic => {
-            if !entry.classic.as_ref().is_some_and(|c| c.stop()) {
-                lock(shared).toast(t!("toast.did_not_stop", name = name_of(&entry)), true);
             }
         }
         Kind::Exe => {}
@@ -387,7 +374,6 @@ fn restart(shared: &Shared, id: &str) {
             stop(shared, id);
             wait_until(Duration::from_secs(5), || !script_running(id))
         }
-        Kind::Classic => entry.classic.as_ref().is_some_and(|c| c.stop()),
         Kind::Exe => return,
     };
     if ended {
@@ -540,13 +526,9 @@ fn handle(shared: &Shared, ask: Ask) {
             follow_running(shared);
         }
         Ask::Replace { folder } => {
-            let gives_way = {
+            {
                 let mut a = lock(shared);
                 let a = &mut *a;
-                // The program that gives way, if it is a running one of the classic Toolbox: it is stopped and the
-                // new one started, so the two never run side by side (Discord Plus: the activity twice).
-                let id = Manifest::read(&folder).ok().flatten().map(|f| f.manifest.id);
-                let old = id.and_then(|id| a.entry(&id).filter(|e| e.kind == Kind::Classic && e.run.running == Some(true)).cloned());
                 if let Err(e) = library::replace(&mut a.settings.value, &a.programs, &a.base, &folder) {
                     return a.toast(format!("{}: {e}", folder.display()), true);
                 }
@@ -554,26 +536,8 @@ fn handle(shared: &Shared, ask: Ask) {
                 a.reload();
                 a.refresh();
                 a.changed();
-                old
-            };
-            follow_running(shared);
-            if let Some(old) = gives_way {
-                let shared = shared.clone();
-                // A Python program takes seconds to quit.
-                std::thread::spawn(move || {
-                    if old.classic.as_ref().is_some_and(|c| c.stop()) {
-                        start(&shared, old.id());
-                        lock(&shared).toast(t!("toast.switched", name = name_of(&old)), false);
-                    } else {
-                        lock(&shared).toast(t!("toast.did_not_stop", name = name_of(&old)), true);
-                    }
-                    std::thread::sleep(Duration::from_millis(400));
-                    let mut a = lock(&shared);
-                    if a.refresh() {
-                        a.changed();
-                    }
-                });
             }
+            follow_running(shared);
         }
         Ask::Remove { stored } => {
             let mut a = lock(shared);
@@ -619,16 +583,6 @@ fn handle(shared: &Shared, ask: Ask) {
             // Also after a refusal: the window then shows the value that still holds.
             a.last_sent.clear();
             a.changed();
-        }
-        Ask::ClassicSettings { id } => {
-            let Some(entry) = lock(shared).entry(&id).cloned() else { return };
-            let shared = shared.clone();
-            // Starting the classic Toolbox takes seconds.
-            std::thread::spawn(move || {
-                if !entry.classic.as_ref().is_some_and(|c| c.open_settings(&id)) {
-                    lock(&shared).toast(t!("toast.no_classic"), true);
-                }
-            });
         }
         Ask::Window | Ask::Unknown => {}
     }
@@ -710,17 +664,6 @@ fn build_menu(a: &mut Agent) -> Vec<Item> {
             Kind::Exe => {
                 sub.push(if running { Item::info(t!("status.running")) } else { entry(start_label, Choice::Start(id.clone())) });
             }
-            Kind::Classic => {
-                let can_start = e.classic.as_ref().is_some_and(|c| c.starter.is_some());
-                if can_start && !running {
-                    sub.push(entry(start_label, Choice::Start(id.clone())));
-                }
-                sub.push(entry(t!("tray.settings"), Choice::Open(Some(id.clone()))));
-                if running {
-                    sub.push(entry(t!("page.restart"), Choice::Restart(id.clone())));
-                    sub.push(entry(t!("page.stop"), Choice::Stop(id.clone())));
-                }
-            }
         }
         let dot = if e.run.crashed {
             "⚠"
@@ -753,9 +696,6 @@ fn quit_now(a: &mut Agent, all: bool) {
     if all {
         for link in a.links.values() {
             let _ = link.conn.send(&Command::Quit);
-        }
-        for port in a.programs.iter().filter_map(|e| e.classic.as_ref()?.port).filter(|p| legacy::listening(*p)) {
-            legacy::command(port, "quit", Duration::from_millis(600));
         }
     }
     a.tell(&Tell::Bye);
@@ -831,10 +771,6 @@ pub fn run(open: bool) {
     let mut settings = Settings::<library::Settings>::load(app::data_dir().join("settings.json"));
     settings.value = settings.value.clone().checked();
     if !settings.existed {
-        // The very first start: next to a classic Toolbox, its language, look and programs are carried over.
-        if let Some(carried) = library::carry_over(&base) {
-            settings.value = carried;
-        }
         if let Err(e) = settings.save() {
             app::log(&format!("the settings could not be saved: {e}"));
         }
@@ -934,7 +870,7 @@ mod tests {
     fn entry(json: &str, running: Option<bool>) -> Entry {
         let manifest = Manifest::parse(json).unwrap();
         let kind = manifest.kind();
-        Entry { stored: manifest.id.clone(), folder: PathBuf::new(), home: PathBuf::new(), manifest, kind, classic: None, options: Default::default(), run: Run { running, ..Default::default() }, autostart: None }
+        Entry { stored: manifest.id.clone(), folder: PathBuf::new(), home: PathBuf::new(), manifest, kind, options: Default::default(), run: Run { running, ..Default::default() }, autostart: None }
     }
 
     fn agent(programs: Vec<Entry>) -> Agent {

@@ -1,243 +1,97 @@
 # Windows Toolbox
 
-Sammlung kleiner, selbst geschriebener Windows-Tools mit einer gemeinsamen Oberfläche (Toolbox).
+One window and one tray icon for a collection of small Windows programs: start and stop them, see their status,
+change their settings, let them start with Windows. Every program lives in a git repo of its own and runs without
+the Toolbox as well; the Toolbox lists, starts and shows them – like Steam does with games.
 
-| Teil | Ordner | Was es macht |
-|---|---|---|
-| **Toolbox** (GUI) | `toolbox/` | Oberfläche für alle Tools: Tabs oben, Programmliste links, Einstellungen rechts, Zahnrad für die GUI selbst |
-| **Hardware-Monitor** | `programs/hardware_monitor/` | CPU- und GPU-Temperatur als Zahlen in der Taskleiste; Klick öffnet ein Fenster mit Hardware-Werten in Tabs und allen Hardwaredaten (Hersteller-/Produkt-IDs, Seriennummern), dazu Stromverbrauch mit Kosten, Lüfterkurven, Laufwerkszustand (wie CrystalDiskInfo) und Privacy mode ([README](programs/hardware_monitor/README.md), englisch) |
-| **Discord Plus** | eigenes Repo `..\Discord Plus\` | Erweiterungen für Discord – bisher der Call-Status: zeigt „Im Call“ an, sobald du telefonierst oder in einem Voice-Chat bist – auch für Freunde ohne Zugriff auf Server oder Anruf; Einrichtung mit Anleitung auf der Toolbox-Seite. In Rust, nur in der neuen Toolbox (`dist\Toolbox.exe`, **Programm hinzufügen…**) |
-| **Cube Game** | eigenes Repo `..\Cube Game\` | Arena-Shooter: Das Spielfenster schrumpft ständig, Schüsse gegen seine Ränder drücken sie wieder auf (WASD + Maus); in Rust, nur in der neuen Toolbox (`dist\Toolbox.exe`, **Programm hinzufügen…**) |
-| **Last Bastion** | eigenes Repo `..\Last Bastion\` | Echtzeit-Strategiespiel (StarCraft × They Are Billions × Factorio); nur in der neuen Toolbox (`dist\Toolbox.exe`, **Programm hinzufügen…**) – seine `program.json` liegt im Spiel-Repo |
-| **Screen Zones** | eigenes Repo `..\Screen Zones\` | Setzt Spiele und Programme rahmenlos in einen festen Bereich des Bildschirms (16:9 links/Mitte/rechts, 21:9, Hälften) und hält sie dort – ein Eintrag pro Spiel, bei jedem Start von selbst; nur in der neuen Toolbox |
-| *Skript-Vorbild* | `template/script/` | das frühere Rayman-Legends-Skript (abgelöst durch Screen Zones) als Beispiel für ein kleines Skript-Programm, siehe [Kleines Skript einbinden](#kleines-skript-einbinden) |
+This repo holds the Toolbox, the library the programs share (`toolbox-kit`) and the tools around them. What is
+planned next stands in [DESIGN.md](DESIGN.md); this file describes what exists today.
 
-Jedes Tool hat in seinem Ordner eine eigene `README.md` mit Einrichtung, Bedienung und Technik.
+## The programs
 
-## Ordnerstruktur
+| Program | Repo | What it does | Kind |
+|---|---|---|---|
+| **Hardware Monitor** | [Hardware-Monitor](https://github.com/Windows-Toolbox/Hardware-Monitor) | CPU and GPU temperature in the taskbar, a window with all hardware values, power consumption with costs, fan curves, drive health, privacy mode. The monitor itself is still Python inside its repo; the Rust program connects it to the Toolbox. | kit program |
+| **Discord Plus** | [Discord-Plus](https://github.com/Windows-Toolbox/Discord-Plus) | Extensions for Discord – so far the call status: shows "In a call" while you are in a call or voice chat, for friends without access to the server or call as well | kit program |
+| **Screen Zones** | [Screen-Zones](https://github.com/Windows-Toolbox/Screen-Zones) | Puts games and programs borderless into a fixed zone of the screen (16:9 left/centre/right, 21:9, halves) and keeps them there – one entry per game, at every start | kit program |
+| **Steam Shortcuts** | [Steam-Shortcuts](https://github.com/Windows-Toolbox/Steam-Shortcuts) | Adds games and programs to Steam (so the Steam Controller works in them) and points desktop icons at Steam – and back | kit program |
+| **Cube Game** | [Cube-Game](https://github.com/Windows-Toolbox/Cube-Game) | Arena shooter: the game window keeps shrinking, shots against its edges push them back out (WASD + mouse) | kit program |
+| **Last Bastion** | [Last-Bastion](https://github.com/Windows-Toolbox/Last-Bastion) | Real-time strategy game; only its `program.json` ties it to the Toolbox | external exe |
+| *Script example* | `template\script\` here | The former Rayman Legends script (replaced by Screen Zones), kept as the example of a small script program | script |
 
-```
-windows-toolbox/
-├─ Setup.exe              richtet alles ein (einmal nach dem Klonen, erneut nach dem Verschieben oder Update)
-├─ Uninstall.exe          Gegenstück zu Setup: Toolbox und Monitor beenden, Aufgabe löschen, Erzeugtes löschen
-├─ Toolbox.exe            startet die Toolbox (Starter, legt Setup.exe an)
-├─ __init__.py            damit Zed die Skripte als Modul starten kann (Play-Button)
-├─ requirements.txt       Python-Pakete mit festen Versionen
-├─ runtime/               wegwerfbar: eigenes Python mit Paketen (legt Setup.exe an)
-├─ data/                 gehört dir: toolbox.json, eine <programm>.json je Programm, installed.json, logs/
-├─ setup/
-│  ├─ setup.ps1           was Setup.exe und Uninstall.exe machen
-│  ├─ setup_exe.cs        Quelltext von Setup.exe und Uninstall.exe (neu bauen: build_setup_exe.ps1)
-│  ├─ starter.cs          Vorlage für die Starter-.exe (Toolbox.exe, HardwareMonitor.exe, …)
-│  ├─ arguments.cs        gemeinsamer Teil von setup_exe.cs und starter.cs (Argumente weiterreichen)
-│  └─ make_exe.py      runtime\Toolbox.exe / runtime\HardwareMonitor.exe: pythonw.exe mit eigenem Namen und Symbol
-├─ toolbox/
-│  ├─ program.json       Ausweis der Toolbox (Version, Skript, Starter, Port)
-│  ├─ toolbox.py          Hauptfenster; findet die Programme automatisch
-│  ├─ base.py             Baukasten für Programmseiten (Section, Text, Choice, Slider, …)
-│  ├─ script_page.py      gemeinsame Seite für Programme, die nur ein Skript sind ("run" statt "page")
-│  ├─ winutil.py          Windows-Helfer (UAC, Aufgabenplanung)
-│  ├─ storage.py            wo Einstellungen und Logs liegen (data/), Lesen und Schreiben
-│  ├─ i18n.py             Sprachen: Texte aus der i18n.json eines Programms in der gewählten Sprache (t("id"))
-│  ├─ i18n.json           alle Texte der Toolbox und des Setup-Fensters (je ID eine Zeile pro Sprache)
-│  ├─ languages.json       welche Sprachen es gibt (Code und Name) – daraus bauen Toolbox und Setup ihre Auswahl
-│  ├─ toolbox.ico         Symbol der Toolbox (blauer Werkzeugkoffer) – auch für Setup.exe und Uninstall.exe
-│  └─ program.ico        Standardsymbol der Programme (⚒ auf Grün), z. B. für den Hardware-Monitor
-└─ programs/
-   └─ hardware_monitor/            ein Programm = ein Ordner, alles darin
-      ├─ program.json             Ausweis: Name, Tab, Beschreibung, Version, Skript, Starter, Port, Aufgabe, Downloads
-      ├─ HardwareMonitor.exe       Starter (legt Setup.exe an)
-      ├─ hardware_monitor.py       Hardware-Monitor (läuft eigenständig): Sensoren, Tray-Icons, IPC
-      ├─ detail_window_content.py   WAS im Detailfenster steht – hier passt du das Fenster an
-      ├─ detail_window.py          baut das Detailfenster daraus (wie base.py bei der Toolbox)
-      ├─ hardware_data.py          liest Hersteller, Modelle, IDs und Seriennummern für den Tab „Hardwaredaten“
-      ├─ hardware_monitor_gui.py   seine Seite in der Toolbox
-      ├─ hardware_monitor_settings.py   Startwerte, Laden/Speichern – gemeinsam für Monitor und Seite
-      ├─ energy.py, fans.py        Stromverbrauch und Lüftersteuerung (energy_view.py, fan_view.py, drive_view.py: ihre Tabs)
-      ├─ i18n.json                 alle Texte auf Deutsch und Englisch (je ID eine Zeile pro Sprache)
-      └─ lhm/                      LibreHardwareMonitor (Download aus program.json, nicht im Repo)
-```
+Each program's README describes how to set it up, use it and how it works.
 
-Die Aufteilung folgt einer einfachen Regel: **Code** (`toolbox/`, `programs/`, `setup/`) kommt aus dem Repo,
-**`runtime/`** lässt sich jederzeit löschen und neu einrichten, **`data/`** gehört dir:
+## Getting started
 
-```
-data/
-├─ toolbox.json              Einstellungen der Toolbox – auch die Sprache (gilt für alle Programme)
-├─ hardware_monitor.json     Einstellungen des Hardware-Monitors
-├─ installed.json          welche Programme eingerichtet sind (schreibt Setup.exe)
-└─ logs/
-   ├─ toolbox.log
-   └─ hardware_monitor.log
-```
-
-Zum Sichern oder Umziehen der Einstellungen reicht `data/`.
-
-## Einrichtung
+The Toolbox has no release yet; it is built from source (needs [Rust](https://rustup.rs)):
 
 ```
 git clone https://github.com/Windows-Toolbox/Toolbox.git
+cd Toolbox
+.\build.ps1
 ```
-Danach **Doppelklick auf `Setup.exe`** – sonst ist nichts nötig, nicht einmal ein installiertes Python. `Setup.exe`
-öffnet ein Konsolenfenster und führt darin `setup\setup.ps1` aus (eine `.ps1` direkt doppelzuklicken würde sie nur im
-Editor öffnen). Es läuft ohne Adminrechte und fragt nur für Schritt 6 einmal nach.
 
-Zuerst fragt ein kleines Fenster nach der **Sprache** (Deutsch/Englisch, vorausgewählt: die von Windows; später
-änderbar in der Toolbox unter ⚙ → *Darstellung*) und **welche Programme** eingerichtet werden sollen: Die Toolbox ist immer dabei, die
-übrigen per Kästchen (oder *Alle auswählen*). Die Auswahl landet in `data\installed.json`; die Toolbox zeigt links
-nur diese Programme. Fehlt die Datei (Einrichtung von vor dieser Auswahl), gelten alle als eingerichtet. Darunter
-zwei Kästchen für **Verknüpfungen** „Windows Toolbox“ – *auf dem Desktop* und *im Startmenü* (beim ersten Einrichten
-aus; Häkchen weg löscht sie wieder). Danach:
+`build.ps1` builds the release version and installs it into `dist\` – that folder *is* the installed Toolbox:
+`dist\Toolbox.exe`, `dist\program.json`, and `dist\data\` with your settings (never touched by a build). It also
+works while the Toolbox is running: the running exe is renamed aside and the new one starts next time.
 
-1. sucht ein installiertes **Python 3.14** – genau diese Version, keine ältere oder neuere (fehlt es, installiert es
-   Python 3.14 per winget),
-2. kopiert es nach `runtime\` (ohne Doku und Tests, ~90 MB) und installiert dort die Pakete aus `requirements.txt` in
-   **festen Versionen** – dieses Python nutzt nur, was in `runtime\` liegt, nichts aus dem installierten Python oder
-   `%APPDATA%\Python`,
-3. legt für jedes gewählte Programm (laut seiner `program.json`) zwei `.exe` an:
-   - den **Starter** zum Doppelklicken – `Toolbox.exe` im Hauptordner, `HardwareMonitor.exe` im Programmordner. Er
-     findet `runtime\` und sein Skript relativ zum eigenen Ort, braucht also keine Argumente und funktioniert (samt
-     Verknüpfungen) auch nach dem Verschieben. Übersetzt wird er aus `setup\starter.cs` mit `csc.exe`, dem
-     C#-Compiler, den Windows im .NET Framework mitbringt.
-   - eine Kopie von `pythonw.exe` mit eigener Dateibeschreibung und eigenem Symbol in `runtime\`
-     (`setup\make_exe.py`), die der Starter aufruft – damit die Programme im Task-Manager als „Toolbox“ und
-     „Hardware-Monitor“ erscheinen statt als „Python“,
-4. lädt die Downloads aus den `program.json` (feste Version, Prüfsumme wird kontrolliert), z. B. LibreHardwareMonitor
-   0.9.6 nach `programs\hardware_monitor\lhm\`,
-5. legt die angehakten Verknüpfungen auf `Toolbox.exe` an (ohne Fenster, z. B. nach einem Update, bleiben sie, wie
-   sie sind – zeigt eine nach dem Verschieben ins Leere, wird sie repariert),
-6. nur mit Hardware-Monitor: holt **einmal** Adminrechte (UAC-Abfrage) und installiert damit PawnIO (Treiber für
-   CPU- und Mainboard-Sensoren) und die geplante Aufgabe `HardwareMonitor` (startet `HardwareMonitor.exe` beim
-   Anmelden mit Adminrechten, ohne Nachfrage),
-7. nur mit Hardware-Monitor: startet ihn (bzw. neu, wenn er noch mit dem alten Programm lief).
+Then start `dist\Toolbox.exe` and add programs with **Add program…** (in the gear). A program is any folder with a
+`program.json` – your clone of its repo after its own `build.ps1`, or its unpacked release zip. Choosing a folder
+that holds several programs (e.g. `E:\Software\Windows Toolbox\`) adds all of them at once.
 
-Jeder Schritt prüft vorher, ob er schon erledigt ist – `Setup.exe` lässt sich also jederzeit erneut ausführen,
-z. B. nach einem `git pull` (neue Pakete) oder **nach dem Verschieben des Ordners**: dann wird nur die Aufgabe neu
-eingerichtet. Mit `-OhneAdmin` (im Terminal: `Setup.exe -OhneAdmin`) entfallen Schritt 6 und 7.
+Nothing needs to be installed besides: no Python, no runtime, no setup program. The Visual C++ runtime is linked
+into every exe.
 
-**Programme einzeln installieren und entfernen**: In der Toolbox unter Zahnrad → *Programme* – je Programm ein Knopf
-*Installieren* bzw. *Entfernen*. Das ruft `Setup.exe -Programs <id>` bzw. `Uninstall.exe -Programs <id>` auf
-(geht auch von Hand im Terminal, mehrere mit Komma). Entfernen beendet das Programm, löscht seine Aufgabe, den Starter
-und die Downloads; der Code bleibt im Repo, die Einstellungen in `data\` auch. Wer im Auswahlfenster von `Setup.exe`
-ein Häkchen wegnimmt, entfernt das Programm genauso.
+## Using the Toolbox
 
-**`Setup.exe` und `Uninstall.exe`** liegen als einzige `.exe` fertig gebaut im Repo – nach dem Klonen gibt es ja noch
-nichts, was sie bauen könnte. Es sind kleine C#-Programme aus `setup\setup_exe.cs` (nach einer Änderung dort mit
-`setup\build_setup_exe.ps1` neu bauen und mit committen). Mit `git clone` geholt, starten sie ohne Rückfrage. Lädt man
-das Repo dagegen als ZIP herunter, kann Windows SmartScreen beim ersten Start warnen („Der Computer wurde durch
-Windows geschützt“, weil die `.exe` nicht signiert ist) – dann *Weitere Informationen → Trotzdem ausführen*.
+**The window**: category tabs at the top, the programs of the tab on the left, the chosen program's page on the
+right. Around each program's own page the Toolbox adds the same frame for all of them:
 
-**Toolbox starten**: Doppelklick auf `Toolbox.exe` – oder die Verknüpfung „Windows Toolbox“ auf dem Desktop bzw. im
-Startmenü (Kästchen in `Setup.exe`).
-Den Hardware-Monitor startest du über die Toolbox (Windows fragt dabei nach Adminrechten) oder
-`programs\hardware_monitor\HardwareMonitor.exe` (dann ohne Adminrechte, also ohne CPU-Werte). Autostart beim
-Anmelden ist nach dem Einrichten aus – einschalten in der Toolbox auf der Seite Hardware-Monitor; dann startet ihn
-auch „Starten“ ohne Nachfrage.
+- status (running, not running, crashed – a program whose connection broke off without saying goodbye) and the
+  program's own status line,
+- **Start · Stop · Restart**,
+- **Start with Windows** for programs that keep running in the background – off until switched on. If Windows has
+  switched the entry off (Task Manager → Startup) or another copy of the program starts with Windows, the page says
+  so; switching on makes Windows start this copy,
+- **Open folder**, **Open log**, **README**, **Remove from the list** (the folder stays untouched).
 
-**Portabel**: Nach dem Einrichten steckt alles im Ordner. Verschieben oder auf einen anderen PC kopieren, dort
-`Setup.exe` erneut ausführen – fertig. Außerhalb des Ordners liegen nur PawnIO (ein Treiber muss in Windows
-registriert sein), die geplante Aufgabe (speichert Windows selbst) und die Verknüpfungen, falls angehakt – die
-biegt `Setup.exe` dabei auf den neuen Ort um.
+A kit program's page shows its settings; a change takes effect in the running program at once. A stopped program
+can be configured as well: the Toolbox starts it without its work, only to show the page, and it ends again when
+the page is left. A script's page shows its hint and its options.
 
-**Feste Versionen**: Jeder PC bekommt dieselbe Python-Version (`$PythonVersion` in `setup\setup.ps1`), dieselben
-Pakete (`requirements.txt`, mit `==`) und dieselben Downloads (Version und Prüfsumme in `program.json`). Ein neues
-Release irgendwo kann so nichts kaputtmachen. Neue Versionen übernimmt man bewusst: in `runtime\` installieren,
-testen, dann mit `runtime\python.exe -m pip freeze` in `requirements.txt` eintragen.
+**The tray icon**: one icon for everything. A left click opens the window; the right-click menu lists every program
+with its status and its own entries (Start, Stop, Restart, Settings, whatever the program adds), and at the end
+**Quit ▸ Only the Toolbox · Toolbox and all programs · Restart the Toolbox**. Programs have no icon of their own while
+the Toolbox runs; without the Toolbox a background program shows its own icon. Windows 11 hides new icons in the
+overflow (`^`) – the gear explains how to show it and has a button for the Windows settings page.
 
-**Neues Python für `runtime\`**: `$PythonVersion` in `setup\setup.ps1` ändern, Ordner `runtime\` löschen und
-`Setup.exe` ausführen.
+**The gear**: colours (dark, light, like Windows), language (German, English), size (also Ctrl + mouse wheel), the
+list of programs with **Add program…**, the tray icon, **Restart** and **Quit**. Language, colours and size are
+handed to every running kit program, so their own windows look the same. Closing the window ends nothing – the
+Toolbox and the programs keep running.
 
-**Aktualisieren**: In den Einstellungen der Toolbox (Zahnrad → *Aktualisieren*). Das holt den neuesten Stand von
-GitHub (`git pull`, nur als Fast-Forward – eigene Änderungen werden nie überschrieben; passen sie nicht dazu, bricht
-es mit einer Meldung ab) und führt danach `Setup.exe -Restart` aus (ohne Auswahlfenster): Pakete auf den neuen
-Stand bringen, die Toolbox und die eingerichteten Programme mit dem neuen Code neu starten. Neue Programme aus dem
-Update erscheinen unter *Programme* zum Installieren. Von Hand geht dasselbe mit `git pull` und `Setup.exe -Restart`.
-Aktualisiert wird immer alles auf einmal – der Code aller Programme kommt mit demselben `git pull`.
+**Two copies of one program**: a program is known by its `id`, and only one copy of it can be on the list. Adding a
+second one (your own build next to a release) asks which of the two to keep.
 
-Läuft die Toolbox beim Einrichten, wird sie vorher beendet (sie hält sonst Dateien in `runtime\` fest) und am Ende
-wieder gestartet.
+**Your data**: `dist\data\settings.json` (look, language, the list of program folders) and `dist\data\log.txt`. The
+folders are remembered relative to the Toolbox where possible, so moving everything together keeps the list valid.
+Every program keeps its own settings in its own `dist\data\`.
 
-**Beenden und Neustart**: In den Einstellungen der Toolbox (Zahnrad) gibt es *Nur Toolbox* und *Toolbox und alle
-Programme*, jeweils mit Neu starten und Beenden. „Alle Programme“ sind die Tools, die eigenständig weiterlaufen (z. B.
-der Hardware-Monitor) – gestoppte bleiben beim Neustart gestoppt.
+## Three kinds of programs
 
-**Entfernen**: `Uninstall.exe` (oder in der Toolbox Zahnrad → *Deinstallieren*) beendet Toolbox und Hardware-Monitor, löscht die Aufgabe und die Verknüpfungen
-auf `Toolbox.exe` (Desktop, Startmenü – auch umbenannte oder verschobene) und auf Wunsch alles Erzeugte (`runtime\`,
-die Starter, `lhm\`). Danach kann der Ordner gelöscht werden. PawnIO bleibt installiert
-(`winget uninstall namazso.PawnIO`). Nur einzelne Programme entfernen: siehe *Programme einzeln installieren und
-entfernen* oben.
+| Kind | What you write | What the Toolbox can do |
+|---|---|---|
+| **Script** | `program.json` with `run` + a `.ps1` | start it without a window, show "running", stop it with everything it started, options on its page |
+| **External exe** | `program.json` with `exe`, in the other program's repo | start it, show "running" (by its process), open its folder |
+| **Kit program** | a Rust program using `toolbox-kit` | all of the above + its settings page inside the Toolbox, live status, its menu under the tray icon, a clean stop, language and look |
 
-## Prüfen
+All fields of `program.json`: [DESIGN.md 15.3](DESIGN.md#153-programjson).
 
-```
-runtime\python.exe programs\hardware_monitor\hardware_monitor.py --list
-```
-listet alle Sensoren auf. Läuft das im Admin-Terminal und zeigt bei der CPU echte Temperaturen, funktioniert alles.
+### A small script
 
-## Detailfenster anpassen
-
-Was im Fenster steht, steht in `programs/hardware_monitor/detail_window_content.py` – Tab für Tab, eine Zeile pro Wert:
-```python
-Tab("tab.gpu",                                     # Titel: ID aus i18n.json (Text je Sprache)
-    Gruppe("gpu",
-           Wert("GPU Core", typ="Temperatur"),
-           Wert("GPU Hot Spot"),
-           Wert("GPU Fan *", typ="Lüfter")))       # * = beliebiger Text, hier: alle GPU-Lüfter
-```
-Wert hinzufügen = Zeile schreiben, Wert weglassen = Zeile löschen. Die genauen Namen zeigt `--list`. Gespeicherte Änderungen erscheinen beim nächsten Öffnen des Fensters, ohne Neustart.
-
-## Neues Tool hinzufügen
-
-1. Ordner `programs/<name>/` anlegen, darin das Programm.
-2. Daneben den Ausweis `program.json`:
-   ```json
-   {
-     "id": "mein",
-     "name": "Mein Programm",
-     "version": "1.0",
-     "kategorie": "Allgemein",
-     "beschreibung": "Kurze Beschreibung",
-     "seite": "mein_gui.py",
-     "skript": "mein.py",
-     "starter": "MeinProgramm.exe"
-   }
-   ```
-   `kategorie` ist der Tab oben (Allgemein oder Games – `CATEGORIES` in
-   `toolbox.py`). `skript` und `starter` braucht es nur, wenn das Tool ein eigenes Programm hat – `Setup.exe` legt dann `MeinProgramm.exe` an – mit dem grünen ⚒ (`toolbox/program.ico`), oder mit eigenem
-   Symbol über `"symbol": "mein.ico"`. Braucht es etwas zum Herunterladen, kommt das als `downloads` dazu (Vorbild:
-   `programs/hardware_monitor/program.json`).
-3. Die Seite für die GUI (`seite`) wird mit den Bausteinen aus `toolbox/base.py` nur beschrieben, Laden und Speichern
-   der Einstellungen übernimmt die Toolbox – automatisch in `data/<id>.json`:
-   ```python
-   from base import Choice, Section, Text, ToolPage
-
-   class MeinPage(ToolPage):
-       defaults = {"rate": 2}
-
-       def layout(self):
-           return [Section("Aktualisierung",
-                           Text("Wie oft gemessen wird."),
-                           Choice("Rate", "rate", {"1 s": 1, "2 s": 2, "5 s": 5}))]
-
-   SEITE = MeinPage
-   ```
-   Alle Bausteine stehen oben in `base.py` erklärt, ein volles Beispiel ist `hardware_monitor_gui.py`.
-   Das eigenständige Programm selbst findet seine Datei mit `daten.einstellungen("mein")` bzw. `daten.log("mein")`.
-   Hat das Tool eigene Fenster, bekommen sie als Titel den Pfad des Programms (wie der Explorer seinen Ordner) – so
-   steht er im Task-Manager beim Aufklappen und zeigt, welche Kopie läuft.
-   Läuft das Tool als eigenes Programm weiter (wie der Hardware-Monitor), zusätzlich
-   `PROGRAMM = Programm(laeuft, beenden, starten)` angeben – dann beenden bzw. starten es
-   „Toolbox und alle Programme“ in den Toolbox-Einstellungen automatisch mit.
-4. Eine `programs/<name>/README.md` anlegen (was das Tool macht, Einrichtung, Bedienung, Einstellungen, Technik –
-   Vorbild ist `programs/hardware_monitor/README.md`) und das Tool oben in der Tabelle eintragen.
-5. Fertig – die Toolbox findet jede `programs/*/program.json` beim Start automatisch, sortiert wird alphabetisch.
-
-## Kleines Skript einbinden
-
-Ein kleines PowerShell-Skript wird in der **neuen Toolbox** (`dist\Toolbox.exe`) zu einem Programm mit eigener Seite,
-ohne eine Zeile Oberflächen-Code. Es bekommt einen eigenen Ordner (gern ein eigenes Repo) neben der Toolbox, darin
-nur `program.json` und das Skript. Vorbild ist `template\script\` (das frühere Rayman-Legends-Skript – zum
-Ausprobieren den Ordner kopieren und in der Toolbox hinzufügen):
+A PowerShell script becomes a program with its own page without a line of UI code. It gets a folder of its own
+(ideally a repo of its own) holding only `program.json` and the script. The example is `template\script\` – copy the
+folder and add it in the Toolbox to try it:
 
 ```json
 {
@@ -260,45 +114,84 @@ Ausprobieren den Ordner kopieren und in der Toolbox hinzufügen):
 }
 ```
 
-- `run`: das `.ps1`, das die Toolbox **ohne Fenster** startet (im Ordner des Skripts). „Beenden“ beendet es samt
-  allem, was es gestartet hat.
-- `launch` (optional): wird nach dem Skript geöffnet – ein Spiel (`uplay://…`, `steam://rungameid/…`), eine Webseite
-  oder ein Programm.
-- Texte sind ein String oder einer je Sprache (`{ "de": …, "en": … }`) – eine `i18n.json` braucht es nicht. `hint`
-  steht auf der Seite über den Optionen: hier gehört die Anleitung hin. `button` beschriftet den Start-Knopf.
-- `options` (optional): je Option eine Auswahl auf der Seite. Die Toolbox speichert sie in `data\settings.json` im
-  Ordner des Skripts (`{"Pos": "Left"}`); das Skript liest sie dort – beim Start und, soll eine Änderung sofort
-  wirken, auch zwischendurch (Vorbild: `Update-Pos` in `rayman_borderless.ps1`). `data\` gehört in die `.gitignore`.
+- `run`: the `.ps1` the Toolbox starts **without a window**, in the script's folder. Stop ends it together with
+  everything it started.
+- `launch` (optional): opened after the script – a game (`uplay://…`, `steam://rungameid/…`), a web page or a
+  program.
+- Texts are a string or one per language (`{ "de": …, "en": … }`). `hint` stands on the page above the options – the
+  place for instructions. `button` labels the start button.
+- `options` (optional): one choice per option on the page. The Toolbox saves them in `data\settings.json` in the
+  script's folder (`{"Pos": "Left"}`); the script reads them there – at its start and, if a change should take
+  effect at once, while it runs (example: `Update-Pos` in `rayman_borderless.ps1`). `data\` belongs into the
+  `.gitignore`.
 
-Danach in der neuen Toolbox **Programm hinzufügen…** → den Ordner wählen. Alle Felder: DESIGN.md 15.3.
+### A kit program
 
-## Technisches
+A kit program is a Rust crate with `toolbox-kit` as a dependency:
 
-- **Einstellungen**: eine `.json` je Programm in `data/` (`toolbox.json`, `hardware_monitor.json`, …), **Fehler** in
-  `data/logs/` (ignoriert git).
-- **Starter**: Der Starter (`Toolbox.exe` usw.) startet `runtime\<Name>.exe` mit dem Skript und beendet sich sofort –
-  im Task-Manager steht danach nur das Programm. Zusätzliche Argumente reicht er weiter, und wird er mit Adminrechten
-  gestartet (Aufgabe, UAC), läuft auch das Programm mit Adminrechten.
-- **GUI ↔ Hardware-Monitor**: Der Monitor läuft mit Adminrechten, die GUI ohne. Gesteuert wird über eine lokale
-  Verbindung auf `127.0.0.1:47815` (Befehle `status`, `reload`, `quit`). Die GUI selbst lauscht auf Port `47816`
-  (`show`, `status`, `quit`): ein zweiter Start holt damit nur das vorhandene Fenster nach vorne, `setup.ps1` beendet
-  sie damit vor dem Einrichten bzw. Entfernen. `show hardware_monitor` schickt das ⚙ im Detailfenster des Monitors –
-  die Toolbox zeigt dann dessen Seite. Beide Ports stehen als `"port"` in der jeweiligen `program.json` –
-  daraus lesen sie Python und `setup.ps1`, ebenso den Namen der Autostart-Aufgabe (`"aufgabe"`).
-- **Sparsam**: Bei geschlossenem oder minimiertem Detailfenster liest der Monitor nur CPU und GPU, bei offenem Fenster
-  nur die Geräte des gewählten Tabs; Raten im Rechtsklick-Menü oder in der GUI.
-  Die GPU-Temperatur fürs Icon kommt bei Nvidia direkt aus `nvml.dll` (Teil des Treibers). LHMs komplettes
-  GPU-Update kostet ~90 ms pro Messung, NVML nur einen Bruchteil davon. Das gilt für „Automatisch“ und „GPU Core“, andere
-  GPU-Sensoren laufen weiter über LHM. Für die Icons wird nur der eine Temperatursensor gelesen, und bei geschlossenem
-  Fenster läuft der Monitor im Effizienzmodus von Windows 11 (einstellbar: Automatisch / Immer an / Aus). Hat die
-  Grafik keine Temperatur (z. B. Intel-Onboard-Grafik), gibt es nur das CPU-Icon und die GPU wird nicht gelesen.
-- **Schneller Start**: Zuerst werden nur CPU und GPU geöffnet (Icons nach Sekundenbruchteilen), die übrige Hardware
-  lädt danach im Hintergrund nach. Allein der RAM braucht dabei ~8 s; bis dahin zeigt das Detailfenster „Lade Sensordaten …“.
-- **Kein `__pycache__`**: `toolbox.py` setzt gleich am Anfang `sys.dont_write_bytecode = True`, dadurch legt Python
-  für die Programmseiten und Hilfsdateien keine `__pycache__`-Ordner an. Nur beim Start als Modul
-  (`python -m toolbox.toolbox`, z. B. über den Play-Button in Zed) speichert Python `toolbox.py` selbst, bevor diese
-  Zeile läuft. Dagegen hilft `python -B -m toolbox.toolbox` oder einmalig für alle Python-Programme:
-  ```
-  setx PYTHONDONTWRITEBYTECODE 1
-  ```
-  (wirkt in neu geöffneten Terminals bzw. nach Neustart von Zed).
+```toml
+kit = { package = "toolbox-kit", git = "https://github.com/Windows-Toolbox/Toolbox" }
+```
+
+Its manifest is not written by hand: name, version and description come from `[package]` of its `Cargo.toml`, the
+rest from `[package.metadata.toolbox]` ([DESIGN.md 15.4](DESIGN.md#154-packagemetadatatoolbox-kit-programs)); the
+kit's build helper writes `program.json` and compiles name, icon and version into the exe. Settings are one struct,
+the page is described in a few lines, and the kit does the rest: loading and saving, the pipe to the Toolbox, the
+tray, autostart, texts in several languages. The smallest example is `demo\`; the programs above are the bigger
+ones. How it works: [DESIGN.md 5](DESIGN.md#5-toolbox-kit--the-shared-library), the formats in
+[DESIGN.md 15](DESIGN.md#15-formats).
+
+## This repo
+
+```
+Toolbox/
+├─ Cargo.toml        the workspace: one command builds everything below
+├─ build.ps1         release build of the Toolbox → dist\
+├─ kit/              toolbox-kit, the library every program and the Toolbox share
+├─ toolbox/          the Toolbox (src\: agent, window, list of programs; assets\: icon and texts)
+├─ demo/             Kit Demo: the smallest kit program – the kit's tests talk to it
+├─ sign/             the developer's signing tool behind every release.ps1
+├─ template/script/  the example of a script program
+└─ dist/             (ignored) the installed Toolbox and its data\
+```
+
+`Toolbox.exe` runs in two roles: the **agent** – always running, the tray icon, the list of programs, the pipe
+`\\.\pipe\windows-toolbox.toolbox`; it sleeps in the Windows message loop until something happens – and the
+**window**, a second process that exists only while the window is open and gives all its memory back when it
+closes.
+
+**All repos in one folder**: with the programs cloned next to this repo (`E:\Software\Windows Toolbox\<program>\`),
+one small file `Windows Toolbox\.cargo\config.toml` points every program at the local `kit\` instead of the git
+address – a change in the kit shows up in every program at its next build, without committing:
+
+```toml
+[patch."https://github.com/Windows-Toolbox/Toolbox"]
+toolbox-kit = { path = "Toolbox/kit" }
+```
+
+Someone who clones a single program does not have that file and gets the kit from GitHub.
+
+## Testing
+
+```
+cargo test --workspace
+```
+
+Nothing pops up: pages and tray menus are tested as data, the agent runs in a sandbox (its own pipe names, no tray
+icon, its own data folder) and is talked to the way the window does, and every page of the window is drawn into
+memory. Details: [DESIGN.md 13](DESIGN.md#13-testing-without-windows).
+
+## Releases
+
+Programs publish signed releases with their own `release.ps1`: it builds, zips `dist\` without `data\`, signs the zip
+with `sign` and publishes it on GitHub. The private key lies in `%USERPROFILE%\.windows-toolbox\release-key`, outside
+every repo – keep it safe and backed up; whoever has it can release updates every installed program accepts. The
+public key is compiled into the kit, so an update is only installed if it is signed with the key of the installed
+version ([DESIGN.md 15.6](DESIGN.md#156-signed-releases)).
+
+The `.exe` files themselves are not signed (signing costs money): Windows SmartScreen may warn once at the first
+start of a downloaded program – *More info → Run anyway*.
+
+## License
+
+[MIT](LICENSE).

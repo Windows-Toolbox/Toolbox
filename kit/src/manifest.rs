@@ -61,28 +61,20 @@ pub struct ScriptOption {
     pub value_labels: BTreeMap<String, Text>,
 }
 
-/// In the file an option is the object above, or just the list of its values (the classic Toolbox's short form).
+/// An option as it stands in the file: without `default` the first value is the default.
 #[derive(Deserialize)]
-#[serde(untagged)]
-enum RawOption {
-    Values(Vec<Value>),
-    Full {
-        values: Vec<Value>,
-        #[serde(default)]
-        default: Value,
-        #[serde(default)]
-        label: Option<Text>,
-        #[serde(default)]
-        value_labels: BTreeMap<String, Text>,
-    },
+struct RawOption {
+    values: Vec<Value>,
+    #[serde(default)]
+    default: Value,
+    #[serde(default)]
+    label: Option<Text>,
+    #[serde(default)]
+    value_labels: BTreeMap<String, Text>,
 }
 
 impl From<RawOption> for ScriptOption {
-    fn from(raw: RawOption) -> Self {
-        let (values, default, label, value_labels) = match raw {
-            RawOption::Values(values) => (values, Value::Null, None, BTreeMap::new()),
-            RawOption::Full { values, default, label, value_labels } => (values, default, label, value_labels),
-        };
+    fn from(RawOption { values, default, label, value_labels }: RawOption) -> Self {
         let default = if default.is_null() { values.first().cloned().unwrap_or(Value::Null) } else { default };
         ScriptOption { values, default, label, value_labels }
     }
@@ -96,7 +88,7 @@ pub fn value_text(value: &Value) -> String {
     }
 }
 
-/// The three kinds of programs (DESIGN.md 4.2) – and the programs of the Python Toolbox, as long as there are any.
+/// The three kinds of programs (DESIGN.md 4.2).
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
@@ -106,8 +98,6 @@ pub enum Kind {
     Kit,
     /// `exe` alone: start it, see whether it runs.
     Exe,
-    /// Neither `run` nor `exe`: a program of the classic Toolbox (`starter`, `page`, `port`).
-    Classic,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -145,8 +135,7 @@ pub struct Manifest {
     pub repository: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub update_key: Option<String>,
-    /// Fields this kit does not know: those of a newer Toolbox, and those of the classic one (`starter`, `port`,
-    /// `task`, `page` …).
+    /// Fields this kit does not know: those of a newer Toolbox.
     #[serde(flatten)]
     pub other: BTreeMap<String, Value>,
 }
@@ -160,11 +149,11 @@ pub struct Found {
 
 impl Manifest {
     pub fn kind(&self) -> Kind {
-        match (&self.run, &self.exe, self.protocol) {
-            (Some(_), _, _) => Kind::Script,
-            (None, Some(_), Some(_)) => Kind::Kit,
-            (None, Some(_), None) => Kind::Exe,
-            (None, None, _) => Kind::Classic,
+        // `parse` makes sure that one of `run` and `exe` is there.
+        match (&self.run, self.protocol) {
+            (Some(_), _) => Kind::Script,
+            (None, Some(_)) => Kind::Kit,
+            (None, None) => Kind::Exe,
         }
     }
 
@@ -175,6 +164,9 @@ impl Manifest {
         }
         if m.name.is_empty() {
             return Err("the name is missing".into());
+        }
+        if m.run.is_none() && m.exe.is_none() {
+            return Err("neither \"run\" nor \"exe\" says what to start".into());
         }
         Ok(m)
     }
@@ -259,18 +251,15 @@ mod tests {
         assert!(kit.background);
         assert_eq!(kit.other["later"]["x"], 1, "unknown fields are kept");
         assert_eq!(Manifest::parse(r#"{"id":"last_bastion","name":"Last Bastion","exe":"LastBastion.exe"}"#).unwrap().kind(), Kind::Exe);
-        // The classic Toolbox's manifest: its fields are kept as they are, and the short form of options works.
-        let classic = Manifest::parse(r#"{"id":"discord_plus","name":"Discord Plus","page":"discord_plus_gui.py","starter":"DiscordPlus.exe","port":47817}"#).unwrap();
-        assert_eq!(classic.kind(), Kind::Classic);
-        assert_eq!(classic.other["port"], 47817);
-        let short = Manifest::parse(r#"{"id":"x","name":"X","run":"x.ps1","options":{"Pos":["Left","Right"]}}"#).unwrap();
-        assert_eq!(short.options["Pos"].default, "Left");
+        let first = Manifest::parse(r#"{"id":"x","name":"X","run":"x.ps1","options":{"Pos":{"values":["Left","Right"]}}}"#).unwrap();
+        assert_eq!(first.options["Pos"].default, "Left", "without a default the first value");
     }
 
     #[test]
     fn what_is_wrong_is_refused() {
-        assert!(Manifest::parse(r#"{"id":"Has Space","name":"X"}"#).is_err());
-        assert!(Manifest::parse(r#"{"id":"x"}"#).is_err());
+        assert!(Manifest::parse(r#"{"id":"Has Space","name":"X","exe":"X.exe"}"#).is_err());
+        assert!(Manifest::parse(r#"{"id":"x","exe":"X.exe"}"#).is_err());
+        assert!(Manifest::parse(r#"{"id":"x","name":"X"}"#).is_err(), "nothing to start");
         assert!(Manifest::parse("not json").is_err());
     }
 
@@ -285,7 +274,7 @@ mod tests {
         };
         write("Script/program.json", r#"{"id":"script","name":"Script","run":"a.ps1"}"#);
         write("Built/dist/program.json", r#"{"id":"built","name":"Built","exe":"Built.exe","protocol":1}"#);
-        write("Built/program.json", r#"{"id":"wrong","name":"the one in dist wins"}"#);
+        write("Built/program.json", r#"{"id":"wrong","name":"the one in dist wins","exe":"Built.exe"}"#);
         write("Broken/program.json", "{");
         write("Nothing/readme.txt", "");
 

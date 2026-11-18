@@ -126,7 +126,7 @@ fn library(conn: &Conn, fits: impl Fn(&Value) -> bool) -> Value {
 fn a_script_from_add_to_remove() {
     let _turn = turn();
     let mut toolbox = Toolbox::start("script");
-    toolbox.write("Programs/Sleeper/program.json", r#"{"id":"sleeper","name":"Sleeper","category":"Games","run":"sleep.ps1","options":{"Pos":["Left","Right"]}}"#);
+    toolbox.write("Programs/Sleeper/program.json", r#"{"id":"sleeper","name":"Sleeper","category":"Games","run":"sleep.ps1","options":{"Pos":{"values":["Left","Right"]}}}"#);
     toolbox.write("Programs/Sleeper/sleep.ps1", "Start-Sleep 120");
     toolbox.write("Programs/Notes/readme.txt", "not a program");
     let (window, first) = toolbox.window();
@@ -271,60 +271,6 @@ fn start_with_windows() {
     assert_eq!(autostart::state(ID), Autostart::Off);
     // The sandbox's keys are not needed any more.
     let _ = Process::new("reg").args(["delete", &format!(r"HKCU\Software\WindowsToolbox\Sandbox{}", ipc::sandbox()), "/f"]).output();
-
-    window.send(&json!({"type": "quit"})).unwrap();
-    toolbox.wait_exit();
-}
-
-/// A running program of the classic Toolbox replaced by its new version: the old one is asked to quit on its port,
-/// then the new one is started – the two never run side by side.
-#[test]
-fn a_running_classic_program_gives_way() {
-    use std::io::{BufRead, BufReader, Write};
-    use std::net::TcpListener;
-    let _turn = turn();
-    const ID: &str = "fake_swap";
-    // The Python version, played by this test: a port that answers `status` and `quit`, and closes after `quit`.
-    let old = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = old.local_addr().unwrap().port();
-    let heard = Arc::new(Mutex::new(Vec::<String>::new()));
-    {
-        let heard = heard.clone();
-        std::thread::spawn(move || {
-            for conn in old.incoming() {
-                let Ok(mut conn) = conn else { break };
-                let mut line = String::new();
-                let _ = BufReader::new(&conn).read_line(&mut line);
-                let line = line.trim().to_string();
-                let _ = conn.write_all(b"{\"ok\": true}\n");
-                heard.lock().unwrap().push(line.clone());
-                if line == "quit" {
-                    break; // the listener closes: the port is free, the program has ended
-                }
-            }
-        });
-    }
-    let new = ipc::Server::bind(ID).unwrap();
-    let mut toolbox = Toolbox::start("swap");
-    toolbox.write("Old/program.json", &format!(r#"{{"id":"fake_swap","name":"Swap","script":"swap.py","starter":"Swap.exe","port":{port}}}"#));
-    toolbox.write("New/program.json", r#"{"id":"fake_swap","name":"Swap","exe":"Swap.exe","protocol":1,"background":true}"#);
-    let (window, _) = toolbox.window();
-    window.send(&json!({"type": "add", "folder": toolbox.root.join("Old")})).unwrap();
-    library(&window, |l| l["programs"][0]["kind"] == "classic" && l["programs"][0]["run"]["running"] == true);
-
-    // "Add program…" on the new folder asks which one to keep; the answer is the new one.
-    window.send(&json!({"type": "add", "folder": toolbox.root.join("New")})).unwrap();
-    let added = until(&window, |told| (told["type"] == "added").then(|| told.clone()));
-    assert_eq!(added["conflicts"].as_array().map(Vec::len), Some(1));
-    window.send(&json!({"type": "replace", "folder": toolbox.root.join("New")})).unwrap();
-
-    // The new one's pipe is there, so the agent follows it – and, once the old one has quit, starts it.
-    let link = new.accept().unwrap();
-    assert!(matches!(link.read::<Command>(), Some(Command::Hello(_))));
-    assert_eq!(link.read::<Command>(), Some(Command::Start));
-    assert!(heard.lock().unwrap().contains(&"quit".to_string()), "the old one was asked to quit first");
-    let toast = until(&window, |told| (told["type"] == "toast").then(|| told.clone()));
-    assert_eq!((&toast["text"], &toast["error"]), (&json!("Swap: the old version was stopped, the new one started."), &json!(false)));
 
     window.send(&json!({"type": "quit"})).unwrap();
     toolbox.wait_exit();

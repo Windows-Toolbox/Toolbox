@@ -391,8 +391,7 @@ impl App {
         let target = entry.start_target();
         let missing = target.as_ref().filter(|t| !t.exists());
         if let Some(file) = missing {
-            let text = if entry.kind == Kind::Classic { t!("page.missing.classic", file = file.display()) } else { t!("page.missing", file = file.display()) };
-            ui.label(RichText::new(format!("⚠ {text}")).color(ui::warn(ui)));
+            ui.label(RichText::new(format!("⚠ {}", t!("page.missing", file = file.display()))).color(ui::warn(ui)));
         }
 
         ui.add_space(4.0);
@@ -474,18 +473,6 @@ impl App {
                 }
             }
             Kind::Exe => {}
-            Kind::Classic => {
-                ui.add_space(8.0);
-                muted_label(ui, t!("classic.text"));
-                let classic = entry.classic.as_ref();
-                if classic.is_some_and(|c| c.page && c.root.is_some()) {
-                    ui.add_space(4.0);
-                    if ui.button(t!("classic.settings")).clicked() {
-                        self.ask(Ask::ClassicSettings { id: entry.id().into() });
-                        self.toast.show(t!("classic.opening"), false);
-                    }
-                }
-            }
         }
     }
 
@@ -826,9 +813,8 @@ mod tests {
     fn entry(folder: &str, json: &str, run: Run) -> Entry {
         let manifest = Manifest::parse(json).unwrap();
         let kind = manifest.kind();
-        let classic = (kind == Kind::Classic).then(|| crate::classic::Classic { root: Some("C:\\Classic".into()), starter: Some("C:\\Classic\\programs\\x\\X.exe".into()), port: Some(1), task: None, page: true });
         let options = manifest.options.iter().map(|(name, option)| (name.clone(), option.default.clone())).collect();
-        Entry { stored: folder.into(), folder: folder.into(), home: folder.into(), manifest, kind, classic, options, run, autostart: None }
+        Entry { stored: folder.into(), folder: folder.into(), home: folder.into(), manifest, kind, options, run, autostart: None }
     }
 
     /// DESIGN.md 13: the drawing, without a window. Every kind of program, running, stopped and crashed, the gear
@@ -849,7 +835,6 @@ mod tests {
             entry("C:\\Nowhere\\Crashed", r#"{"id":"crashed","name":"Crashed","exe":"C.exe","protocol":1}"#, crashed),
             entry("C:\\Nowhere\\Rayman", r#"{"id":"rayman","name":"Rayman","category":"Games","run":"r.ps1","hint":"Set the game to windowed mode first.","button":{"de":"Spielen","en":"Play"},"options":{"Pos":{"values":["Left","Center"],"default":"Center"}}}"#, Run { running: Some(false), ..Default::default() }),
             entry("C:\\Nowhere\\Game", r#"{"id":"game","name":"Game","category":"Games","exe":"G.exe"}"#, running),
-            entry("C:\\Nowhere\\Python", r#"{"id":"python","name":"Python","category":"Other things","page":"x.py","starter":"X.exe","port":1}"#, Run::default()),
             // "Start with Windows": switched off in Task Manager, and an entry that starts another copy.
             Entry { autostart: Some(kit::autostart::Entry { state: Autostart::DisabledByWindows, target: Some("C:\\Nowhere\\Plus\\P.exe".into()) }), ..entry("C:\\Nowhere\\Plus", r#"{"id":"plus","name":"Plus","exe":"P.exe","protocol":1,"background":true}"#, Run::default()) },
             Entry { autostart: Some(kit::autostart::Entry { state: Autostart::On, target: Some(std::env::current_exe().unwrap()) }), ..entry("C:\\Nowhere\\Other", r#"{"id":"other","name":"Other","exe":"O.exe","protocol":1,"background":true}"#, Run::default()) },

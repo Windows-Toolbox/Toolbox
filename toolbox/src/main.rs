@@ -4,7 +4,6 @@
 #![windows_subsystem = "windows"]
 
 mod agent;
-mod classic;
 mod library;
 mod talk;
 mod window;

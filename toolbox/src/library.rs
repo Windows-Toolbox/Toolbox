@@ -14,8 +14,6 @@ use kit::proto::Health;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::classic::{self, Classic};
-
 /// `data\settings.json` of the Toolbox.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(default)]
@@ -57,7 +55,7 @@ impl Settings {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 #[serde(default)]
 pub struct Run {
-    /// `None`: it cannot be told (a classic program without a port).
+    /// `None`: not looked at yet.
     pub running: Option<bool>,
     pub state: Health,
     /// The program's status line.
@@ -77,8 +75,6 @@ pub struct Entry {
     pub home: PathBuf,
     pub manifest: Manifest,
     pub kind: Kind,
-    /// Set for a program of the classic (Python) Toolbox.
-    pub classic: Option<Classic>,
     /// A script's options with their current values.
     pub options: BTreeMap<String, Value>,
     pub run: Run,
@@ -100,13 +96,9 @@ impl Entry {
         self.manifest.run.as_ref().map(|r| self.home.join(r))
     }
 
-    /// The file a script reads its options from: `data\settings.json` next to it. A script still lying in the
-    /// classic Toolbox reads `data\<id>.json` of that Toolbox instead.
+    /// The file a script reads its options from: `data\settings.json` next to it.
     pub fn options_file(&self) -> PathBuf {
-        match &self.classic {
-            Some(Classic { root: Some(root), .. }) => root.join("data").join(format!("{}.json", self.id())),
-            _ => self.home.join("data").join("settings.json"),
-        }
+        self.home.join("data").join("settings.json")
     }
 
     /// "Start with Windows" belongs to programs that keep running without a window (DESIGN.md 4.4).
@@ -149,7 +141,6 @@ impl Entry {
         match self.kind {
             Kind::Script => self.script(),
             Kind::Kit | Kind::Exe => self.exe(),
-            Kind::Classic => self.classic.as_ref().and_then(|c| c.starter.clone()),
         }
     }
 
@@ -212,15 +203,8 @@ pub fn script_command(entry: &Entry) -> Result<String, String> {
     if !script.exists() {
         return Err(format!("{} is missing", script.display()));
     }
-    let mut command = format!("powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File {}", quote(&script.to_string_lossy()));
-    // A script still lying in the classic Toolbox gets its options as arguments (`-Pos Left`), the way the classic
-    // page started it. A script in the new layout reads them from its `data\settings.json`.
-    if entry.classic.is_some() {
-        for (name, value) in &entry.options {
-            command += &format!(" -{name} {}", quote(&value_text(value)));
-        }
-    }
-    Ok(command)
+    // The script reads its options from its `data\settings.json`.
+    Ok(format!("powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File {}", quote(&script.to_string_lossy())))
 }
 
 /// Why a folder on the list shows no program.
@@ -312,15 +296,14 @@ pub fn load(settings: &Settings, base: &Path, old: &[Entry]) -> (Vec<Entry>, Vec
         let folder = resolve(base, stored);
         let lost = |problem| Missing { stored: stored.clone(), folder: folder.clone(), problem };
         match Manifest::read(&folder) {
-            Ok(Some(mut found)) => {
+            Ok(Some(found)) => {
                 if let Some(first) = programs.iter().find(|e| e.id() == found.manifest.id) {
                     missing.push(lost(Problem::SameId(first.manifest.name.get(i18n::FALLBACK).to_string())));
                     continue;
                 }
-                let classic = classic::inspect(&mut found);
                 let kind = found.manifest.kind();
                 let run = old.iter().find(|e| e.id() == found.manifest.id).map(|e| e.run.clone()).unwrap_or_default();
-                let mut entry = Entry { stored: stored.clone(), folder: folder.clone(), home: found.home, manifest: found.manifest, kind, classic, options: BTreeMap::new(), run, autostart: None };
+                let mut entry = Entry { stored: stored.clone(), folder: folder.clone(), home: found.home, manifest: found.manifest, kind, options: BTreeMap::new(), run, autostart: None };
                 entry.read_options();
                 entry.read_autostart();
                 programs.push(entry);
@@ -366,7 +349,6 @@ pub fn add(settings: &mut Settings, programs: &[Entry], base: &Path, folder: &Pa
             Some((_, there)) if same_folder(there, &folder) => result.known += 1,
             Some((_, there)) => result.conflicts.push(Conflict { name: found.manifest.name, listed: there.clone(), new: folder }),
             None => {
-                carry_over_options(base, &found);
                 settings.programs.push(store_path(base, &folder));
                 listed.push((found.manifest.id, folder));
                 result.added.push(found.manifest.name);
@@ -382,67 +364,8 @@ pub fn replace(settings: &mut Settings, programs: &[Entry], base: &Path, folder:
     if let Some(listed) = programs.iter().find(|e| e.id() == found.manifest.id) {
         settings.programs.retain(|s| s != &listed.stored);
     }
-    carry_over_options(base, &found);
     settings.programs.push(store_path(base, folder));
     Ok(())
-}
-
-/// A script that moves out of the classic Toolbox (Rayman in M2) keeps its options: when it is added in the new
-/// layout and has no `data\settings.json` yet, the values the classic Toolbox next to this one saved for it
-/// (`data\<id>.json` there) are written into that file – once, like every program's settings (DESIGN.md 11).
-fn carry_over_options(base: &Path, found: &kit::manifest::Found) {
-    let (manifest, home) = (&found.manifest, &found.home);
-    // A script still in the classic layout (texts in `i18n.json`) reads the classic file itself.
-    if manifest.kind() != Kind::Script || manifest.options.is_empty() || home.join("i18n.json").exists() {
-        return;
-    }
-    let file = home.join("data").join("settings.json");
-    let Some(root) = base.parent() else { return };
-    if file.exists() {
-        return;
-    }
-    let Some(old) = std::fs::read_to_string(root.join("data").join(format!("{}.json", manifest.id)))
-        .ok()
-        .and_then(|s| serde_json::from_str::<serde_json::Map<String, Value>>(s.trim_start_matches('\u{feff}')).ok())
-    else {
-        return;
-    };
-    let kept: serde_json::Map<String, Value> = old.into_iter().filter(|(name, value)| manifest.options.get(name).is_some_and(|o| o.values.contains(value))).collect();
-    if kept.is_empty() {
-        return;
-    }
-    let written = std::fs::create_dir_all(home.join("data")).and_then(|_| std::fs::write(&file, serde_json::to_string_pretty(&kept).unwrap_or_default()));
-    if let Err(e) = written {
-        kit::app::log(&format!("{}: {e}", file.display()));
-    }
-}
-
-// ---------- the first start ----------
-
-/// On the first start next to a classic Toolbox (this exe lies in its `dist\`): language, look and the installed
-/// programs are carried over once, so the new Toolbox opens with everything in it (DESIGN.md 11).
-pub fn carry_over(base: &Path) -> Option<Settings> {
-    let root = base.parent()?;
-    let read = |file: &str| -> Option<Value> { serde_json::from_str(std::fs::read_to_string(root.join("data").join(file)).ok()?.trim_start_matches('\u{feff}')).ok() };
-    let old = read("toolbox.json")?;
-    let mut settings = Settings::default();
-    if let Some(language) = old["language"].as_str() {
-        settings.language = language.to_string();
-    }
-    if let Some(appearance) = old["appearance"].as_str() {
-        settings.theme = appearance.to_lowercase();
-    }
-    if let Some(zoom) = old["zoom"].as_f64() {
-        settings.zoom = zoom as f32;
-    }
-    let installed = read("installed.json");
-    for id in installed.iter().flat_map(|i| i["programs"].as_array()).flatten().filter_map(Value::as_str) {
-        let folder = root.join("programs").join(id);
-        if folder.join("program.json").exists() {
-            settings.programs.push(store_path(base, &folder));
-        }
-    }
-    Some(settings.checked())
 }
 
 #[cfg(test)]
@@ -468,7 +391,7 @@ mod tests {
         let dir = temp("autostart");
         write(dir.join("P.exe"), "");
         let manifest = Manifest::parse(r#"{"id":"plus","name":"Plus","exe":"P.exe","protocol":1,"background":true}"#).unwrap();
-        let mut e = Entry { stored: String::new(), folder: dir.clone(), home: dir.clone(), kind: manifest.kind(), manifest, classic: None, options: BTreeMap::new(), run: Run::default(), autostart: None };
+        let mut e = Entry { stored: String::new(), folder: dir.clone(), home: dir.clone(), kind: manifest.kind(), manifest, options: BTreeMap::new(), run: Run::default(), autostart: None };
         assert!(e.has_autostart());
         let noted = |state, target: PathBuf| Some(autostart::Entry { state, target: Some(target) });
         assert!(!e.autostart_on() && !e.autostart_is_mine(), "nothing noted");
@@ -578,19 +501,14 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// A script's page as data, and how the script is started – in the new layout and in the classic one.
+    /// A script's page as data, and how the script is started.
     #[test]
     fn a_script_s_page_and_command() {
         let root = temp("script");
-        write(root.join("toolbox/program.json"), r#"{"id":"toolbox","name":"Toolbox","port":47816}"#);
         let manifest = r#"{"id":"rayman","name":"Rayman","run":"r.ps1","hint":{"de":"Erst im Spiel einstellen","en":"Set it in the game first"},
             "options":{"Pos":{"values":["Left","Center"],"default":"Center","label":{"de":"Position","en":"Position"},"value_labels":{"Left":{"de":"Links","en":"Left"}}}}}"#;
         write(root.join("New Layout/program.json"), manifest);
         write(root.join("New Layout/r.ps1"), "");
-        write(root.join("programs/rayman/program.json"), manifest);
-        write(root.join("programs/rayman/i18n.json"), "{}");
-        write(root.join("programs/rayman/r.ps1"), "");
-        write(root.join("data/rayman.json"), r#"{"Pos": "Left"}"#);
 
         let new = Settings { programs: vec![root.join("New Layout").to_string_lossy().into_owned()], ..Default::default() };
         let (programs, _) = load(&new, &root, &[]);
@@ -601,13 +519,7 @@ mod tests {
         assert_eq!(page["blocks"][1]["options"], serde_json::json!([{"value": "Left", "label": "Links"}, {"value": "Center", "label": "Center"}]));
         let command = script_command(&programs[0]).unwrap();
         assert!(command.starts_with("powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \""), "{command}");
-        assert!(command.ends_with("New Layout\\r.ps1\""), "a script in the new layout reads its options from its file: {command}");
-
-        // Still in the classic Toolbox: the options come from its data\ and are passed as arguments.
-        let classic = Settings { programs: vec![root.join("programs").join("rayman").to_string_lossy().into_owned()], ..Default::default() };
-        let (programs, _) = load(&classic, &root, &[]);
-        assert_eq!(programs[0].options["Pos"], "Left");
-        assert!(script_command(&programs[0]).unwrap().ends_with("r.ps1 -Pos Left"));
+        assert!(command.ends_with("New Layout\\r.ps1\""), "the script reads its options from its file: {command}");
 
         // What cannot be started says why.
         let mut gone = programs[0].clone();
@@ -615,59 +527,6 @@ mod tests {
         assert!(script_command(&gone).unwrap_err().contains("missing"));
         gone.manifest.run = Some("r.cmd".into());
         assert!(script_command(&gone).unwrap_err().contains(".ps1"));
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn a_script_moving_out_of_the_classic_toolbox_keeps_its_options() {
-        let root = temp("move");
-        let base = root.join("Toolbox").join("dist");
-        let manifest = r#"{"id":"rayman","name":"Rayman","run":"r.ps1","options":{"Pos":{"values":["Left","Center"],"default":"Center"}}}"#;
-        write(root.join("Toolbox/programs/rayman/program.json"), manifest);
-        write(root.join("Toolbox/programs/rayman/i18n.json"), "{}");
-        write(root.join("Toolbox/data/rayman.json"), r#"{"Pos": "Left", "Gone": 1}"#);
-        write(root.join("Rayman/program.json"), manifest);
-
-        // On the list from the classic folder; the moved copy is the same id → replaced, and its options come along.
-        let mut settings = Settings { programs: vec![r"..\programs\rayman".into()], ..Default::default() };
-        let (programs, _) = load(&settings, &base, &[]);
-        let added = add(&mut settings, &programs, &base, &root.join("Rayman"));
-        assert_eq!(added.conflicts.len(), 1);
-        assert!(!root.join("Rayman/data/settings.json").exists(), "nothing is written before the answer");
-        replace(&mut settings, &programs, &base, &root.join("Rayman")).unwrap();
-        assert_eq!(settings.programs, [r"..\..\Rayman"]);
-        let saved: Value = serde_json::from_str(&std::fs::read_to_string(root.join("Rayman/data/settings.json")).unwrap()).unwrap();
-        assert_eq!(saved, serde_json::json!({"Pos": "Left"}), "only the script's own options are carried over");
-        let (programs, _) = load(&settings, &base, &[]);
-        assert_eq!((programs[0].classic.is_none(), &programs[0].options["Pos"]), (true, &serde_json::json!("Left")));
-
-        // Once only: what the new file says wins over the classic one from then on.
-        write(root.join("Rayman/data/settings.json"), r#"{"Pos": "Center"}"#);
-        let mut fresh = Settings::default();
-        add(&mut fresh, &[], &base, &root.join("Rayman"));
-        assert_eq!(load(&fresh, &base, &[]).0[0].options["Pos"], "Center");
-
-        // Added without the classic folder on the list (it was removed or deleted first): carried over as well.
-        std::fs::remove_dir_all(root.join("Rayman/data")).unwrap();
-        let mut fresh = Settings::default();
-        add(&mut fresh, &[], &base, &root.join("Rayman"));
-        assert_eq!(load(&fresh, &base, &[]).0[0].options["Pos"], "Left");
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn the_first_start_next_to_a_classic_toolbox() {
-        let root = temp("carry");
-        let base = root.join("dist");
-        write(root.join("data/toolbox.json"), "\u{feff}{\"appearance\": \"Light\", \"close_to_tray\": false, \"zoom\": 1.25, \"language\": \"de\"}");
-        write(root.join("data/installed.json"), r#"{"programs": ["discord_plus", "gone", "rayman_legends"]}"#);
-        write(root.join("programs/discord_plus/program.json"), r#"{"id":"discord_plus","name":"Discord Plus","page":"x.py","starter":"DiscordPlus.exe","port":47817}"#);
-        write(root.join("programs/rayman_legends/program.json"), r#"{"id":"rayman_legends","name":"Rayman Legends","run":"r.ps1"}"#);
-        write(root.join("programs/not_installed/program.json"), r#"{"id":"not_installed","name":"N","page":"x.py"}"#);
-        let s = carry_over(&base).unwrap();
-        assert_eq!((s.language.as_str(), s.theme.as_str(), s.zoom), ("de", "light", 1.25));
-        assert_eq!(s.programs, [r"..\programs\discord_plus", r"..\programs\rayman_legends"]);
-        assert!(carry_over(&root.join("elsewhere").join("dist")).is_none(), "no classic Toolbox, nothing to carry over");
         std::fs::remove_dir_all(&root).ok();
     }
 }

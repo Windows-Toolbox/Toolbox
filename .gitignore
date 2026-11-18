@@ -1,26 +1,11 @@
-# --- Python ---
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-env/
-.pytest_cache/
-.mypy_cache/
-
 # --- Editors / Windows ---
 .vscode/
 .idea/
 Thumbs.db
 desktop.ini
 
-# --- Settings and logs (created while running) ---
-/data/
+# --- Logs ---
 *.log
-
-# --- Own Python, starter .exe files and downloads of the programs (created by Setup.exe) ---
-runtime/
-programs/*/lhm/
 
 # --- Claude Code (local only) ---
 CLAUDE.md

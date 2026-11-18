@@ -47,8 +47,6 @@ pub enum Ask {
     Autostart { id: String, on: bool },
     /// One option of a script was changed on its page.
     SetOption { id: String, name: String, value: Value },
-    /// Show this program's page in the classic Toolbox.
-    ClassicSettings { id: String },
     /// "Restart the Toolbox" in the gear: the agent ends and starts anew; the programs keep running.
     RestartToolbox,
     #[serde(other)]

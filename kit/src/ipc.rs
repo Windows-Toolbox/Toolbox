@@ -295,39 +295,6 @@ pub fn exists(id: &str) -> bool {
     ok != 0 || unsafe { GetLastError() } != ERROR_FILE_NOT_FOUND
 }
 
-/// The Python programs' way of talking, until the last one is ported (DESIGN.md 11, M1): a TCP port on
-/// 127.0.0.1 named by `"port"` in their manifest, one command per connection, one JSON line as the answer.
-pub mod legacy {
-    use std::io::{BufRead, BufReader, Write};
-    use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-    use std::time::Duration;
-
-    fn addr(port: u16) -> SocketAddr {
-        SocketAddr::from((Ipv4Addr::LOCALHOST, port))
-    }
-
-    /// Is somebody listening on the port? Asked by trying to take the port ourselves, which fails at once if it is
-    /// taken – connecting to a closed port instead would wait for its timeout.
-    pub fn listening(port: u16) -> bool {
-        TcpListener::bind(addr(port)).is_err()
-    }
-
-    /// Sends one command (`status`, `quit`, `reload`, `show <id>` …). `None` if nobody answered; the Toolbox's own
-    /// port answers `ok`, which comes back as the string `"ok"`.
-    pub fn command(port: u16, command: &str, timeout: Duration) -> Option<serde_json::Value> {
-        let mut conn = TcpStream::connect_timeout(&addr(port), timeout).ok()?;
-        conn.set_read_timeout(Some(timeout)).ok()?;
-        conn.write_all(format!("{command}\n").as_bytes()).ok()?;
-        let mut line = String::new();
-        BufReader::new(conn).read_line(&mut line).ok()?;
-        let line = line.trim();
-        if line.is_empty() {
-            return None;
-        }
-        Some(serde_json::from_str(line).unwrap_or_else(|_| serde_json::Value::String(line.to_string())))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,27 +325,5 @@ mod tests {
         drop(c);
         assert_eq!(t.join().unwrap(), None);
         assert!(!exists(&id), "the name is gone with the server");
-    }
-
-    #[test]
-    fn the_old_port_way() {
-        use std::io::{BufRead, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        assert!(legacy::listening(port));
-        let t = std::thread::spawn(move || {
-            for answer in ["{\"ok\": true, \"pid\": 42}\n", "ok\n"] {
-                let (mut conn, _) = listener.accept().unwrap();
-                let mut line = String::new();
-                std::io::BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
-                conn.write_all(answer.as_bytes()).unwrap();
-            }
-        });
-        let timeout = std::time::Duration::from_millis(500);
-        assert_eq!(legacy::command(port, "status", timeout).unwrap()["pid"], 42);
-        assert_eq!(legacy::command(port, "show x", timeout).unwrap(), "ok");
-        t.join().unwrap();
-        assert!(!legacy::listening(port));
-        assert!(legacy::command(port, "status", std::time::Duration::from_millis(100)).is_none());
     }
 }

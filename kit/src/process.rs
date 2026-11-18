@@ -212,11 +212,6 @@ pub fn copy_text(text: &str) -> bool {
     }
 }
 
-/// Starts a program with admin rights; Windows asks first (UAC). `false` if the question was declined.
-pub fn run_elevated(exe: &Path) -> bool {
-    shell_execute("runas", &exe.to_string_lossy(), exe.parent())
-}
-
 /// Waits until the process has ended – at most `timeout`. `true` = ended (or never existed). Works for processes
 /// with admin rights too: waiting needs no more than the right to wait.
 pub fn wait_exit(pid: u32, timeout: Duration) -> bool {

@@ -99,10 +99,6 @@
     "de": "{file} fehlt.",
     "en": "{file} is missing."
   },
-  "page.missing.classic": {
-    "de": "{file} fehlt – starte einmal Setup.exe der klassischen Toolbox, sie erzeugt die Datei.",
-    "en": "{file} is missing – run Setup.exe of the classic Toolbox once; it creates the file."
-  },
   "page.no_page": {
     "de": "Das Programm hat seine Seite nicht geschickt. Einzelheiten stehen in seinem Protokoll (Ordner öffnen → data\\log.txt).",
     "en": "The program did not send its page. Details are in its log (Open folder → data\\log.txt)."
@@ -110,19 +106,6 @@
   "page.retry": {
     "de": "Noch einmal versuchen",
     "en": "Try again"
-  },
-
-  "classic.text": {
-    "de": "Dieses Programm gehört noch zur klassischen Toolbox (Python). Starten und Stoppen gehen von hier aus; seine Einstellungen zeigt bis zum Umbau die klassische Toolbox.",
-    "en": "This program still belongs to the classic Toolbox (Python). It can be started and stopped from here; until it is ported, its settings are shown by the classic Toolbox."
-  },
-  "classic.settings": {
-    "de": "Einstellungen (klassische Toolbox)",
-    "en": "Settings (classic Toolbox)"
-  },
-  "classic.opening": {
-    "de": "Die klassische Toolbox wird geöffnet …",
-    "en": "Opening the classic Toolbox …"
   },
 
   "welcome.title": {
@@ -271,28 +254,12 @@
     "de": "{name} konnte nicht gestartet werden: {why}",
     "en": "{name} could not be started: {why}"
   },
-  "toast.no_starter": {
-    "de": "{name}: Die Start-Datei fehlt – starte einmal Setup.exe der klassischen Toolbox.",
-    "en": "{name}: its starter is missing – run Setup.exe of the classic Toolbox once."
-  },
-  "toast.declined": {
-    "de": "{name} braucht Administratorrechte – die Nachfrage von Windows wurde abgelehnt.",
-    "en": "{name} needs admin rights – the question Windows asked was declined."
-  },
   "toast.autostart_failed": {
     "de": "{name}: „Mit Windows starten“ ließ sich nicht ändern – {why}",
     "en": "{name}: “Start with Windows” could not be changed – {why}"
   },
-  "toast.switched": {
-    "de": "{name}: die alte Version wurde beendet, die neue gestartet.",
-    "en": "{name}: the old version was stopped, the new one started."
-  },
   "toast.did_not_stop": {
     "de": "{name} hat sich nicht beenden lassen.",
     "en": "{name} could not be stopped."
-  },
-  "toast.no_classic": {
-    "de": "Die klassische Toolbox ließ sich nicht öffnen.",
-    "en": "The classic Toolbox could not be opened."
   }
 }
