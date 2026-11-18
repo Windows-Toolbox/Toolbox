@@ -39,7 +39,7 @@ pub const PROTOCOL: u32 = 1;
 /// The public key the releases of the Windows-Toolbox organization are signed with (DESIGN.md 15.6): base64 of
 /// the 32 bytes of an Ed25519 key. The build helper writes it into every kit program's manifest as `update_key`;
 /// the list of "Get programs" is checked against it. The private half lies on the developer PC, outside every repo.
-pub const UPDATE_KEY: &str = "irW9QaiPwY3yzUxKejqYsAc5f4OBa+JvFqd1xh4WUrs=";
+pub const UPDATE_KEY: &str = "03P/g6dXQTOEWT4LCAhPitblYen9X+e3RW/UTLgHheM=";
 
 /// Facts about the program that exist once, in its `Cargo.toml`, and reach the code through its build script
 /// (`kit::build::manifest()`): `const META: kit::Meta = kit::meta!();`
