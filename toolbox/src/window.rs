@@ -880,7 +880,7 @@ mod tests {
             // A kit program whose page has arrived – with a block this Toolbox does not know.
             {
                 let mut s = lock(&shared);
-                s.page.page = Some(Page { blocks: vec![Block::Section { title: "Section".into(), blocks: vec![Block::Switch { label: "Switch".into(), key: "on".into(), value: true }, Block::Unknown] }] });
+                s.page.page = Some(Page { blocks: vec![Block::Section { open: true, title: "Section".into(), blocks: vec![Block::Switch { label: "Switch".into(), key: "on".into(), value: true }, Block::Unknown] }] });
                 s.toasts.push(("Saved".into(), false));
             }
             draw(&mut app);

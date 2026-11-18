@@ -1024,6 +1024,46 @@ What it settled here:
   the Rayman script is then removed from the list, and its repo is retired once the hand test with the real game
   passed.
 
+**Screen Zones – many entries (built 2026-11-18).** With dozens of entries the page breaks down:
+one section per entry, all open, in the order they were added, nothing to search. Worked out with a clickable
+board (three designs, real and example entries); the user's decision: **all three, as views of one list**. First
+built as three buttons List · Detail · Group; then (the user, the same day) "Group is just another list – why not
+with Detail too?": **two switches** that combine, **Groups** and **Detail**, so four ways from the same entries.
+
+- **A new kit block `list`** (step 1 of 4.5). The program sends the entries; the Toolbox draws them:
+  - one row per entry – state dot, title, subtitle, tags, one quick button, an arrow;
+  - *Groups* off: one flat list, chips "All" + one per group above it; on: one folding heading per group with its
+    count (groups the program marks `open` start open, groups without an entry are left out, no chips);
+  - *Detail* off: a click opens the entry's blocks under its row, one at a time; on: compact rows on the left
+    (the state's text under the title), the chosen entry's blocks on the right – under each other below 560 px.
+- **Searching, sorting and the switches are the Toolbox's own business** – nothing goes to the program, so typing
+  costs no round trip, and the program never needs to know how its list is shown. A filter field (Ctrl+F, Esc
+  clears it) matches title, subtitle and tags; a sort menu offers "Active first" (not with Groups – there it is
+  A–Z), the program's own sorts and A–Z. Switches, filter, sort, open row and chosen entry are kept in egui's
+  memory under the list's `key` (by the entry's `id`) – a page pushed again (a game starts) and leaving the page
+  keep them, for as long as the Toolbox runs; it starts again with both switches off.
+- **Fields**: 15.2. Kit: `page::Builder::list` / `section_closed`, the renderer in `kit\src\ui\list.rs` (filter
+  and sort are plain functions with tests).
+- **Rows do not jump under the mouse**: when a pushed page would reorder the rows while the pointer is over the
+  list, the new order waits until it leaves. A new or just-started entry flashes once.
+- **`section` gets `open`** (default true, as today): Keys, Good to know and Advanced start folded.
+- **Screen Zones' side**: the list replaces the sections per game and "Add a game" (now the list's `add`); groups
+  Active / Needs attention / Others / Off; a sort "Last played" from a new field `last` per entry (set when its
+  window is taken). An older Toolbox shows "needs a newer Toolbox" for the list – Toolbox and Screen Zones are
+  updated together.
+- **Tests**: filter, sort and the steady order as plain functions; all four ways drawn without a window, wide and
+  narrow, with and without entries; the keys of the list's blocks (`games.3.zone`) through `check_keys_with`.
+  Photographed in a sandbox Toolbox: plain, Detail (wide and narrow), Groups, Groups with Detail.
+- **Found on the way**: a slider or text field next to a long label made the page wider than a narrow column (the
+  view Detail) – the overflow widened every block after it. Both now put the label above the control when the two
+  do not fit side by side.
+
+Found on the way: **Citrix's viewer takes "always on top" away by itself**, so a held window must not trust what it
+set a second ago – Screen Zones now reads the real flag in its regular look, and a window owned by the held one
+(Citrix lays an overlay of a second process over its session) counts as the held one being active. This applies to
+every entry, not only to virtual machines: it costs one call per held window and second and changes nothing for a
+window that keeps the flag.
+
 **M4 – Hardware Monitor in Rust.** Bridge as the only elevated part, status line and live displays in the tray,
 detail window (with the new blocks and the canvas from 4.5), settings, setup steps (PawnIO, LHM, task).
 After this, `ToolboxClassic.exe` has no page left to show and is deleted together with `toolbox\*.py`.
@@ -1245,6 +1285,10 @@ here when they are built: `combo`, `tabs`, `table`, `graph`, `canvas`.
 Kit programs never write it by hand (15.4). Example, Rayman after M2:
 
 ```json
+| `list` | `key` (string, tells lists apart), `items`, `groups` (list of `{"id","label","open"}`, in their order), `sorts` (list of `{"id","label"}`), `add` (`{"label","blocks"}`, optional), `empty` (text while there is no item). An item: `id` (stable), `title`, `subtitle`, `state` (`ok`/`warn`/`bad`/`unknown`) and `text` (the dot and what it means), `group`, `tags` (list of short texts), `button` (`{"label","action"}`, optional), `order` (`{"sort id": number}`, smaller first, missing last), `blocks` | many entries; two switches the user combines: Groups (a folding heading per group, else one list with chips per group) and Detail (the chosen entry beside the list, under it when narrow; else it opens under its row, one at a time); filter field (Ctrl+F), sort menu ("Active first" by the order of `groups`, the program's `sorts`, A–Z) – all worked out in the renderer, nothing is sent; rows do not reorder while the mouse is over them; an entry that is new or changed its group is marked for a moment (added 2026-11-18, section 11) |
+
+A `section` may carry `"open": false` – it starts folded (missing = open, as before 2026-11-18). A `slider` or
+`entry` whose label and control do not fit side by side puts the label above.
 {
   "id": "rayman_legends",
   "name": "Rayman Legends",

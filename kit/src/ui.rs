@@ -9,6 +9,8 @@ use crate::page::{Block, Page};
 use crate::proto::{Command, Health};
 use crate::t;
 
+mod list;
+
 /// The blue of our headings on a dark ground – a lighter tone of egui's own selection blue, which marks what is
 /// chosen (tabs, the program on the left) …
 pub const ACCENT: Color32 = Color32::from_rgb(0x6c, 0xb4, 0xf5);
@@ -82,8 +84,13 @@ pub fn hint(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
 /// A section as in the Last Bastion editor: a blue heading that folds shut with a click (egui remembers it by
 /// `salt` – usually the title; anything that tells two sections of one page apart), its content indented under it.
 pub fn section<R>(ui: &mut egui::Ui, title: &str, salt: impl std::hash::Hash + std::fmt::Debug, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<R> {
+    section_folded(ui, title, salt, true, add)
+}
+
+/// Like `section`; `open`: how it starts out, before the user folds it either way.
+pub fn section_folded<R>(ui: &mut egui::Ui, title: &str, salt: impl std::hash::Hash + std::fmt::Debug, open: bool, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<R> {
     let heading = RichText::new(title).color(accent(ui));
-    egui::CollapsingHeader::new(heading).id_salt(salt).default_open(true).show(ui, add).body_returned
+    egui::CollapsingHeader::new(heading).id_salt(salt).default_open(open).show(ui, add).body_returned
 }
 
 /// A button of the bar at the top of a window – the editor's module bar: bigger than the others, blue while chosen.
@@ -191,9 +198,10 @@ impl PageView {
     /// `i`: the block's place among its siblings – tells two sections with the same title apart.
     fn block(&mut self, ui: &mut egui::Ui, b: &Block, i: usize, out: &mut Vec<Command>) {
         match b {
-            Block::Section { title, blocks } => {
-                section(ui, title, (title, i), |ui| self.blocks(ui, blocks, out));
+            Block::Section { title, blocks, open } => {
+                section_folded(ui, title, (title, i), *open, |ui| self.blocks(ui, blocks, out));
             }
+            Block::List(list) => self.list(ui, list, out),
             Block::Text { text } => {
                 ui.label(RichText::new(text).color(muted(ui)));
             }
@@ -209,8 +217,16 @@ impl PageView {
             Block::Slider { label, key, value, min, max, step, unit } => {
                 let held = self.held.as_ref().filter(|h| &h.key == key).map(|h| h.value);
                 let mut v = held.unwrap_or(*value);
-                ui.horizontal(|ui| {
+                // In a narrow column (the view Detail of a list) the label goes above the slider – side by side
+                // they would make the page wider than the window.
+                let beside = fits_beside(ui, label, ui.spacing().slider_width + 80.0);
+                if !beside {
                     ui.label(label);
+                }
+                ui.horizontal(|ui| {
+                    if beside {
+                        ui.label(label);
+                    }
                     let suffix = if unit.is_empty() { String::new() } else { format!(" {unit}") };
                     let r = ui.add(egui::Slider::new(&mut v, *min..=*max).step_by(*step).suffix(suffix));
                     if r.changed() {
@@ -250,10 +266,17 @@ impl PageView {
                 if self.typing.as_ref().is_some_and(|t| &t.key == key && t.left.is_some_and(|at| &t.text == value || at.elapsed() > Duration::from_millis(500))) {
                     self.typing = None;
                 }
-                ui.horizontal(|ui| {
+                let beside = fits_beside(ui, label, 280.0);
+                if !beside {
                     ui.label(label);
+                }
+                ui.horizontal(|ui| {
+                    if beside {
+                        ui.label(label);
+                    }
                     let mut text = self.typing.as_ref().filter(|t| &t.key == key).map(|t| t.text.clone()).unwrap_or_else(|| value.clone());
-                    let r = ui.add(egui::TextEdit::singleline(&mut text).password(*secret).desired_width(280.0));
+                    let width = 280.0_f32.min(ui.available_width());
+                    let r = ui.add(egui::TextEdit::singleline(&mut text).password(*secret).desired_width(width));
                     if r.has_focus() || r.changed() {
                         self.typing = Some(Typing { key: key.clone(), text: text.clone(), left: None });
                     }
@@ -286,10 +309,18 @@ impl PageView {
     }
 }
 
+/// Does `label` fit on one line with a control `control` wide next to it?
+fn fits_beside(ui: &egui::Ui, label: &str, control: f32) -> bool {
+    let font = TextStyle::Body.resolve(ui.style());
+    let text = ui.painter().layout_no_wrap(label.to_string(), font, Color32::WHITE).size().x;
+    text + ui.spacing().item_spacing.x + control <= ui.available_width()
+}
+
 fn find_slider(blocks: &[Block], key: &str) -> Option<f64> {
     blocks.iter().find_map(|b| match b {
         Block::Slider { key: k, value, .. } if k == key => Some(*value),
         Block::Section { blocks, .. } => find_slider(blocks, key),
+        Block::List(list) => list.items.iter().find_map(|i| find_slider(&i.blocks, key)),
         _ => None,
     })
 }
@@ -358,6 +389,7 @@ mod tests {
         use crate::page::{Block, Page};
         let page = Page {
             blocks: vec![Block::Section {
+                open: true,
                 title: "S".into(),
                 blocks: vec![
                     Block::Switch { label: "On".into(), key: "on".into(), value: false },

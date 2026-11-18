@@ -18,5 +18,45 @@
   "kit.no_opengl": {
     "de": "Das Fenster kann nicht geöffnet werden: Dieser PC hat kein nutzbares OpenGL. Installiere den Grafiktreiber deiner Grafikkarte und starte das Programm noch einmal.\n\nEinzelheiten: {error}",
     "en": "The window cannot be opened: this PC has no usable OpenGL. Install the driver of your graphics card and start the program again.\n\nDetails: {error}"
+  },
+  "kit.list.groups": {
+    "de": "Gruppen",
+    "en": "Groups"
+  },
+  "kit.list.groups.tip": {
+    "de": "Nach Gruppen ordnen, jede Gruppe zum Zuklappen",
+    "en": "Arrange by group, each one folding"
+  },
+  "kit.list.detail": {
+    "de": "Detail",
+    "en": "Detail"
+  },
+  "kit.list.detail.tip": {
+    "de": "Einstellungen neben der Liste statt unter dem Eintrag",
+    "en": "Settings beside the list instead of under the entry"
+  },
+  "kit.list.filter": {
+    "de": "Filtern (Strg+F)",
+    "en": "Filter (Ctrl+F)"
+  },
+  "kit.list.all": {
+    "de": "Alle",
+    "en": "All"
+  },
+  "kit.list.sort.active": {
+    "de": "Aktive zuerst",
+    "en": "Active first"
+  },
+  "kit.list.sort.az": {
+    "de": "A–Z",
+    "en": "A–Z"
+  },
+  "kit.list.none": {
+    "de": "Nichts passt zu „{filter}“.",
+    "en": "Nothing matches “{filter}”."
+  },
+  "kit.list.choose": {
+    "de": "Links einen Eintrag wählen.",
+    "en": "Choose an entry on the left."
   }
 }

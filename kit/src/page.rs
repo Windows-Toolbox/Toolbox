@@ -1,6 +1,8 @@
 //! A settings page as data (DESIGN.md 4.4, 15.2): the program builds it from its settings, the Toolbox – or the
 //! program's own settings window – draws it (`ui::PageView`).
 
+use std::collections::BTreeMap;
+
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,6 +22,10 @@ pub enum Block {
     Section {
         title: String,
         blocks: Vec<Block>,
+        /// Open when the page is first shown (the user may fold it either way). Missing = open – pages from before
+        /// this field.
+        #[serde(default = "yes", skip_serializing_if = "is_yes")]
+        open: bool,
     },
     Text {
         text: String,
@@ -60,9 +66,85 @@ pub enum Block {
     Buttons {
         buttons: Vec<Button>,
     },
+    /// Many entries of one kind (Screen Zones: the games) – flat or in groups, opening under the row or beside the
+    /// list, with a filter field, chips per group and sorting, all worked out by the renderer itself (DESIGN.md 15.2).
+    List(List),
     /// A block this kit does not know yet – drawn as "needs a newer Toolbox".
     #[serde(other)]
     Unknown,
+}
+
+fn yes() -> bool {
+    true
+}
+fn is_yes(v: &bool) -> bool {
+    *v
+}
+
+/// The list block. Everything but `items` may stay empty.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct List {
+    /// Tells two lists apart – the renderer remembers view, filter, sort and the open entry under it.
+    pub key: String,
+    pub items: Vec<Item>,
+    /// In their order: the sort "active first" goes by it, the chips and the view Group show it.
+    pub groups: Vec<Group>,
+    /// Sorts of the program's own, besides "active first" (with groups) and A–Z.
+    pub sorts: Vec<Sort>,
+    /// A button above the list that unfolds these blocks (Screen Zones: the open windows to add).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub add: Option<Add>,
+    /// Shown while the list has no entry at all.
+    pub empty: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct Item {
+    /// Stable across pushes (Screen Zones: the exe) – the open entry and the chosen one are remembered by it.
+    pub id: String,
+    pub title: String,
+    pub subtitle: String,
+    /// The dot in front of the entry …
+    pub state: Health,
+    /// … and what it means: its tooltip, and the line under the title in the view Detail.
+    pub text: String,
+    /// The `id` of one of the list's `groups`.
+    pub group: String,
+    /// Short labels at the right of the row (Screen Zones: the zone); the filter searches them too.
+    pub tags: Vec<String>,
+    /// One button in the row itself (Screen Zones: Play).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub button: Option<Button>,
+    /// The entry's place in each of the list's `sorts`, by sort id: smaller first; missing = last.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub order: BTreeMap<String, f64>,
+    /// What opens under the row – or beside the list with Detail.
+    pub blocks: Vec<Block>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct Group {
+    pub id: String,
+    pub label: String,
+    /// Open when the list is first shown in groups.
+    pub open: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct Sort {
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct Add {
+    pub label: String,
+    pub blocks: Vec<Block>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -100,10 +182,30 @@ impl<'a> Builder<'a> {
     }
 
     pub fn section(&mut self, title: impl Into<String>, f: impl FnOnce(&mut Builder)) {
+        let blocks = self.inner(f);
+        self.blocks.push(Block::Section { title: title.into(), blocks, open: true });
+    }
+
+    /// A section that starts folded – for what is seldom needed.
+    pub fn section_closed(&mut self, title: impl Into<String>, f: impl FnOnce(&mut Builder)) {
+        let blocks = self.inner(f);
+        self.blocks.push(Block::Section { title: title.into(), blocks, open: false });
+    }
+
+    /// Blocks built apart (a section's, an entry's) – their keys still count for `check_keys`.
+    fn inner(&mut self, f: impl FnOnce(&mut Builder)) -> Vec<Block> {
         let mut inner = Builder::new(self.settings);
         f(&mut inner);
         self.keys.append(&mut inner.keys);
-        self.blocks.push(Block::Section { title: title.into(), blocks: inner.blocks });
+        inner.blocks
+    }
+
+    /// A list of entries: `p.list("games", |l| { l.group(..); l.item(Item { .. }, |p| p.switch(..)); })`.
+    pub fn list(&mut self, key: &str, f: impl FnOnce(&mut ListBuilder)) {
+        let mut l = ListBuilder { page: Builder::new(self.settings), list: List { key: key.into(), ..List::default() } };
+        f(&mut l);
+        self.keys.append(&mut l.page.keys);
+        self.blocks.push(Block::List(l.list));
     }
 
     pub fn text(&mut self, text: impl Into<String>) {
@@ -162,6 +264,40 @@ impl<'a> Builder<'a> {
 
     pub fn finish(self) -> Page {
         Page { blocks: self.blocks }
+    }
+}
+
+pub struct ListBuilder<'a> {
+    page: Builder<'a>,
+    list: List,
+}
+
+impl ListBuilder<'_> {
+    pub fn group(&mut self, id: &str, label: impl Into<String>, open: bool) -> &mut Self {
+        self.list.groups.push(Group { id: id.into(), label: label.into(), open });
+        self
+    }
+
+    pub fn sort(&mut self, id: &str, label: impl Into<String>) -> &mut Self {
+        self.list.sorts.push(Sort { id: id.into(), label: label.into() });
+        self
+    }
+
+    pub fn empty(&mut self, text: impl Into<String>) -> &mut Self {
+        self.list.empty = text.into();
+        self
+    }
+
+    /// The button above the list and what it unfolds.
+    pub fn add(&mut self, label: impl Into<String>, f: impl FnOnce(&mut Builder)) {
+        let blocks = self.page.inner(f);
+        self.list.add = Some(Add { label: label.into(), blocks });
+    }
+
+    /// One entry; `f` builds what opens with it. `item.blocks` is replaced by them.
+    pub fn item(&mut self, item: Item, f: impl FnOnce(&mut Builder)) {
+        let blocks = self.page.inner(f);
+        self.list.items.push(Item { blocks, ..item });
     }
 }
 
@@ -333,6 +469,35 @@ mod tests {
         assert!(check_keys_with(&s, |p| p.switch("x", "games.1.zone")).is_ok());
         assert!(check_keys_with(&s, |p| p.switch("x", "games.2.zone")).is_err());
         assert!(check_keys::<WithList>(|p| p.switch("x", "games.0.zone")).is_err(), "the default list is empty");
+    }
+
+    #[test]
+    fn a_list_is_plain_data() {
+        let s = WithList { games: vec![Game { zone: "left".into(), delay: 3 }] };
+        let v = serde_json::to_value(&s).unwrap();
+        let mut b = Builder::new(&v);
+        b.list("games", |l| {
+            l.group("active", "Active", true).group("other", "Others", false).sort("last", "Last played").empty("None yet");
+            l.add("Add", |p| p.text("pick one"));
+            let item = Item { id: "a.exe".into(), title: "A".into(), group: "active".into(), tags: vec!["left".into()], order: [("last".to_string(), 1.0)].into(), ..Item::default() };
+            l.item(item, |p| p.choice("Zone", "games.0.zone", &[("left", "Left")]));
+        });
+        b.section_closed("More", |p| p.text("x"));
+        let page = b.finish();
+        let json = serde_json::to_value(&page).unwrap();
+        let list = &json["blocks"][0];
+        assert_eq!((list["type"].as_str(), list["key"].as_str()), (Some("list"), Some("games")));
+        assert_eq!(list["items"][0]["blocks"][0]["value"], "left", "an entry's blocks know their values");
+        assert_eq!(list["items"][0]["order"]["last"], 1.0);
+        assert_eq!(json["blocks"][1]["open"], false);
+        assert_eq!(serde_json::from_value::<Page>(json).unwrap(), page, "and back");
+        // The keys inside entries and inside `add` are checked.
+        assert!(check_keys_with(&s, |p| p.list("g", |l| l.item(Item::default(), |p| p.switch("x", "games.1.zone")))).is_err());
+        assert!(check_keys_with(&s, |p| p.list("g", |l| l.add("+", |p| p.switch("x", "nope")))).is_err());
+        // A section from an older program is open; an open one is sent as before.
+        let p: Page = serde_json::from_str(r#"{"blocks":[{"type":"section","title":"S","blocks":[]}]}"#).unwrap();
+        assert!(matches!(p.blocks[0], Block::Section { open: true, .. }));
+        assert!(serde_json::to_value(&p).unwrap()["blocks"][0].get("open").is_none());
     }
 
     #[test]
