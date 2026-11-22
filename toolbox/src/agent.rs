@@ -777,7 +777,8 @@ fn uninstall(shared: &Shared) {
 
 // ---------- export / import all settings ----------
 
-/// "Export all settings" (DESIGN.md 8): the Toolbox's `settings.json` and every program's, in one zip.
+/// "Export all settings" (DESIGN.md 8): the Toolbox's `settings.json` and every program's `data\` (no logs), in one
+/// zip.
 fn export(shared: &Shared, file: PathBuf) {
     let mut a = lock(shared);
     a.save();
@@ -857,10 +858,10 @@ fn import(shared: &Shared, file: PathBuf) {
         }
         follow_running(&shared);
         let (mut count, mut failed) = (0, vec![]);
-        for (id, (_, bytes)) in &contents.programs {
+        for (id, (_, files)) in &contents.programs {
             let Some(entry) = lock(&shared).entry(id).cloned() else { continue };
             let ran = make_way(&shared, id);
-            match backup::write_settings(&backup::settings_file(&entry), bytes) {
+            match backup::put_back(&entry, files) {
                 Ok(()) => count += 1,
                 Err(why) => failed.push(why),
             }
@@ -1402,7 +1403,12 @@ pub fn run(open: bool) {
     // After Uninstall all: everything has ended; what is left are the folders – said, then the Toolbox's opened.
     let uninstalled = lock(&shared).uninstalled.take();
     if let Some(folders) = uninstalled {
-        let list: String = folders.iter().map(|f| format!("\n• {}", f.display())).collect();
+        // A developer's folders are git clones: said, so nobody deletes unpushed work by following the message.
+        let in_git = |f: &PathBuf| f.ancestors().any(|d| d.join(".git").exists());
+        let list: String = folders
+            .iter()
+            .map(|f| if in_git(f) { format!("\n• {} {}", f.display(), t!("gear.uninstall.git")) } else { format!("\n• {}", f.display()) })
+            .collect();
         app::message_box("Windows Toolbox", &t!("gear.uninstall.done", folders = list), false);
         // Tests never open a window.
         if ipc::sandbox().is_empty() {

@@ -83,8 +83,9 @@ all**, the tray icon, and for the Toolbox itself **Start with Windows** (only th
 menu**, **Update**, **Restart** and **Quit**. Language, colours and size are handed to every running kit program,
 so their own windows look the same. Closing the window ends nothing – the Toolbox and the programs keep running.
 
-- **Back up settings**: *Export…* writes one zip with the settings of the Toolbox and of every program on the list;
-  *Import…* shows first what it will take over, then puts it back (a running program restarts for it).
+- **Back up settings**: *Export…* writes one zip with the settings of the Toolbox and everything every program on the
+  list keeps in its `data\` (settings, logins, backups, saves – no logs); *Import…* shows first what it will take
+  over, then puts it back (a running program restarts for it).
 - **Clean up and uninstall**: everything the Toolbox and its programs put into Windows is named `WindowsToolbox`.
   *Clean up…* lists what belongs to no program any more (a program whose folder was deleted) and removes it after a
   click; *Uninstall all…* lists everything, removes it, ends every program and the Toolbox, then says

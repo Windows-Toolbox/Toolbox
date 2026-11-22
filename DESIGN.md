@@ -929,6 +929,10 @@ Then Python leaves the Hardware Monitor's repo too.
   opens no folder there and its message goes to the log. Tested by hand on the real PC (2026-11-22): restart after
   a crash, starting with Windows (only the tray icon), the Start menu entry (pinned: one taskbar icon), export /
   import, Clean up, Uninstall all. After that, Uninstall all got its closing message listing the folders to delete.
+- **Toolbox v2.1.1** (2026-11-22), before reinstalling on a second PC: the export takes each program's whole `data\`
+  (15.8); the closing message of Uninstall all marks folders that lie in a git repo. With it, Hardware Monitor
+  v2.0.1 got "Remove setup" (task and, if asked, PawnIO) – what Uninstall all leaves, as its README says. Not tried
+  yet: a laptop from the zip alone (Get programs, Set up, Remove setup, Uninstall all).
 
 **Screen Zones – more per game** (concept 2026-11-18, not built yet; details in its README):
 
@@ -1272,13 +1276,18 @@ One zip, written by Gear → Export (`toolbox\src\backup.rs`), read by Gear → 
 ```
 windows-toolbox-settings.json      {"version": "<Toolbox version>", "programs": [{"id": "screen_zones", "name": {…}}]}
 toolbox/settings.json              the Toolbox's data\settings.json as it was saved
-programs/<id>/settings.json        each listed program's data\settings.json (a kit program's and an exe's next to
-                                   its exe, a script's next to its manifest) – only those that have one
+programs/<id>/<path>               every file in each listed program's data\ (a kit program's and an exe's next to
+                                   its exe, a script's next to its manifest), subfolders kept – without logs
+                                   (log.txt, log.old.txt, *.log) and *.tmp; only programs whose data\ holds a file
 ```
 
 Import: from the Toolbox's file it takes language, colours, size and `restart_after_crash`; its list of folders is
 added to the list here as far as the folders exist (relative ones resolved from this Toolbox's folder). A program's
 file is put back only if that program is on the list (after that addition) – by id, so it does not matter where its
-folder lies. Ids outside `[a-z0-9_]+`, files that are no JSON object and zips without the index are refused. No
-logs, no other files of a program.
+folder lies. A program's files are written into its `data\` (each aside first, then renamed); files there that are not
+in the zip stay. Ids outside `[a-z0-9_]+`, a `settings.json` that is no JSON object and zips without the index are
+refused; a path with `..`, `\`, `:` or an empty part is skipped. A zip of 2.1.0 (only `settings.json` per program) has
+the same layout and is read as before. The zip holds logins (Discord Plus) – the gear says not to pass it on. Until
+2.1.0 only `settings.json` went along; looking at a reinstall on 2026-11-22 showed what that would lose: Steam
+Shortcuts' backups, the Hardware Monitor's fan curves and energy history, Discord Plus' login, Cube Game's profile.
 

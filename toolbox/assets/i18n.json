@@ -421,8 +421,8 @@
     "en": "Back up settings"
   },
   "gear.backup.text": {
-    "de": "Eine Zip-Datei mit den Einstellungen der Toolbox und aller Programme auf der Liste – für einen anderen PC oder eine andere Kopie. Nur Einstellungen, keine Logs.",
-    "en": "One zip file with the settings of the Toolbox and of every program on the list – for another PC or another copy. Only settings, no logs."
+    "de": "Eine Zip-Datei mit den Einstellungen der Toolbox und allem, was die Programme auf der Liste in ihrem data-Ordner haben (Einstellungen, Anmeldungen, Sicherungen, Spielstände) – für einen anderen PC oder eine andere Kopie. Ohne Logs. Enthält Anmeldungen: nicht weitergeben.",
+    "en": "One zip file with the settings of the Toolbox and everything the programs on the list keep in their data folder (settings, logins, backups, saves) – for another PC or another copy. No logs. It holds logins: do not pass it on."
   },
   "gear.export": {
     "de": "Exportieren…",
@@ -453,16 +453,16 @@
     "en": "the Toolbox: look, language, switches – and the programs on its list whose folders exist here"
   },
   "gear.import.programs": {
-    "de": "die Einstellungen von {names}",
-    "en": "the settings of {names}"
+    "de": "die Daten von {names} (Einstellungen und alles andere im data-Ordner)",
+    "en": "the data of {names} (settings and everything else in the data folder)"
   },
   "gear.import.skipped": {
     "de": "Nicht auf der Liste, ausgelassen: {names}",
     "en": "Not on the list, left out: {names}"
   },
   "gear.import.replace": {
-    "de": "Die jetzigen Einstellungen werden dabei ersetzt. Laufende Programme starten dafür kurz neu.",
-    "en": "The current settings are replaced. Running programs restart for it."
+    "de": "Die jetzigen Einstellungen und Dateien gleichen Namens werden dabei ersetzt. Laufende Programme starten dafür kurz neu.",
+    "en": "The current settings and files of the same name are replaced. Running programs restart for it."
   },
   "gear.import.nothing": {
     "de": "In der Datei ist nichts, was hier passt.",
@@ -535,6 +535,10 @@
   "gear.uninstall.done": {
     "de": "Alles deinstalliert – in Windows ist nichts mehr von der Toolbox und ihren Programmen eingetragen.\n\nDiese Ordner kannst du jetzt einfach löschen:{folders}",
     "en": "All uninstalled – nothing of the Toolbox and its programs is entered in Windows any more.\n\nYou can now simply delete these folders:{folders}"
+  },
+  "gear.uninstall.git": {
+    "de": "(liegt in einem Git-Repo – nur löschen, wenn alles gepusht ist)",
+    "en": "(lies in a git repo – delete it only if everything is pushed)"
   },
   "trace.autostart": {
     "de": "Mit Windows starten: {name} → {target}",

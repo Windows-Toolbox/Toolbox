@@ -402,6 +402,9 @@ fn settings_export_and_import() {
     window.send(&json!({"type": "look", "language": "en", "theme": "light", "zoom": 1.5})).unwrap();
     library(&window, |l| l["settings"]["theme"] == "light" && l["programs"][0]["options"]["Pos"] == "Left");
 
+    // More than the settings: a program's other files in data\ go along (a log does not).
+    toolbox.write("Script/data/backup/list.txt", "before");
+    toolbox.write("Script/data/log.txt", "log");
     let zip = toolbox.root.join("Backup.zip");
     window.send(&json!({"type": "export", "file": zip})).unwrap();
     let text = until(&window, |told| (told["type"] == "toast").then(|| told["text"].as_str().unwrap_or_default().to_string()));
@@ -411,6 +414,7 @@ fn settings_export_and_import() {
     window.send(&json!({"type": "set_option", "id": "fake_script", "name": "Pos", "value": "Right"})).unwrap();
     window.send(&json!({"type": "look", "language": "en", "theme": "dark", "zoom": 1.0})).unwrap();
     library(&window, |l| l["settings"]["theme"] == "dark" && l["programs"][0]["options"]["Pos"] == "Right");
+    toolbox.write("Script/data/backup/list.txt", "after");
 
     // … the plan first: nothing is changed by it.
     window.send(&json!({"type": "import_check", "file": zip})).unwrap();
@@ -424,6 +428,7 @@ fn settings_export_and_import() {
     let saved = toolbox.settings();
     assert_eq!((&saved["theme"], &saved["zoom"]), (&json!("light"), &json!(1.5)));
     assert_eq!(read_json(&toolbox.root.join("Script/data/settings.json"))["Pos"], "Left");
+    assert_eq!(std::fs::read_to_string(toolbox.root.join("Script/data/backup/list.txt")).unwrap(), "before");
 
     // Not ours: said so, nothing changed.
     std::fs::write(toolbox.root.join("Other.zip"), b"not a zip").unwrap();

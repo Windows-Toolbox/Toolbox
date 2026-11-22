@@ -1,6 +1,6 @@
-//! Gear → Export / Import all settings (DESIGN.md 8): one zip with the `data\settings.json` of the Toolbox and of
-//! every program on the list – the way to take your settings to another PC or another copy, instead of copying
-//! each `data\` by hand. Only settings: no logs, no other files a program keeps.
+//! Gear → Export / Import all settings (DESIGN.md 8, 15.8): one zip with the Toolbox's `data\settings.json` and the
+//! whole `data\` of every program on the list – the way to take everything a program keeps to another PC or another
+//! copy, instead of copying each `data\` by hand. Logs stay behind.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -15,11 +15,28 @@ use crate::library::Entry;
 /// The zip's table of contents – what is in it, with the names to show before importing.
 const INDEX: &str = "windows-toolbox-settings.json";
 const TOOLBOX: &str = "toolbox/settings.json";
-/// No settings file is anywhere near this big.
-const MAX_FILE: usize = 4 << 20;
+/// A program's file in `data\` above this size is left out (a program's data is a few kilobytes).
+const MAX_FILE: usize = 32 << 20;
 
-fn program_file(id: &str) -> String {
-    format!("programs/{id}/settings.json")
+/// A program's files: (path inside `data\` with `/`, content).
+pub type Files = Vec<(String, Vec<u8>)>;
+
+/// Where a program's `rel` (a path inside its `data\`, with `/`) lies in the zip.
+fn program_file(id: &str, rel: &str) -> String {
+    format!("programs/{id}/{rel}")
+}
+
+/// Logs and half-written files stay behind; everything else in `data\` is the program's.
+fn kept(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    !(lower.ends_with(".log") || lower.ends_with(".tmp") || lower == "log.txt" || lower == "log.old.txt")
+}
+
+/// A path from the zip that stays inside `data\`: plain names joined by `/`, none of them leading out.
+fn safe(rel: &str) -> bool {
+    !rel.is_empty()
+        && rel.split('/').all(|part| !part.is_empty() && part != "." && part != ".." && !part.contains(['\\', ':']))
+        && rel.rsplit('/').next().is_some_and(kept)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -44,17 +61,45 @@ pub fn settings_file(entry: &Entry) -> PathBuf {
     }
 }
 
-/// Packs the Toolbox's settings and every program's that has a settings file. The number of programs in it.
+/// The program's `data\` – what is exported of it.
+pub fn data_dir(entry: &Entry) -> PathBuf {
+    settings_file(entry).parent().map(PathBuf::from).unwrap_or_default()
+}
+
+/// Every file in `dir` worth taking along, as (path with `/`, content), sorted.
+fn files_in(dir: &Path) -> Result<Files, String> {
+    fn walk(dir: &Path, prefix: &str, out: &mut Files) -> Result<(), String> {
+        let Ok(read) = std::fs::read_dir(dir) else { return Ok(()) };
+        for item in read.flatten() {
+            let name = item.file_name().to_string_lossy().to_string();
+            let rel = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
+            let path = item.path();
+            let Ok(kind) = item.file_type() else { continue };
+            if kind.is_dir() {
+                walk(&path, &rel, out)?;
+            } else if kind.is_file() && safe(&rel) && item.metadata().is_ok_and(|m| m.len() as usize <= MAX_FILE) {
+                out.push((rel, std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?));
+            }
+        }
+        Ok(())
+    }
+    let mut out = vec![];
+    walk(dir, "", &mut out)?;
+    out.sort();
+    Ok(out)
+}
+
+/// Packs the Toolbox's settings and every program's `data\` that holds something. The number of programs in it.
 pub fn export(toolbox: &Path, programs: &[Entry], version: &str) -> Result<(Vec<u8>, usize), String> {
     let read = |file: &Path| std::fs::read(file).map_err(|e| format!("{}: {e}", file.display()));
     let mut files = vec![(TOOLBOX.to_string(), read(toolbox)?)];
     let mut index = Index { version: version.to_string(), programs: vec![] };
     for entry in programs {
-        let file = settings_file(entry);
-        if !file.is_file() {
+        let found = files_in(&data_dir(entry))?;
+        if found.is_empty() {
             continue;
         }
-        files.push((program_file(entry.id()), read(&file)?));
+        files.extend(found.into_iter().map(|(rel, bytes)| (program_file(entry.id(), &rel), bytes)));
         index.programs.push(Named { id: entry.id().to_string(), name: entry.manifest.name.clone() });
     }
     let count = index.programs.len();
@@ -67,11 +112,12 @@ pub fn export(toolbox: &Path, programs: &[Entry], version: &str) -> Result<(Vec<
 pub struct Contents {
     /// The Toolbox's settings, as they were saved.
     pub toolbox: Option<Value>,
-    /// Each program's settings file, by id, with its name.
-    pub programs: BTreeMap<String, (Text, Vec<u8>)>,
+    /// Each program's files, by id, with its name.
+    pub programs: BTreeMap<String, (Text, Files)>,
 }
 
-/// Reads a zip of exported settings. Every file must be a JSON object; anything else in the zip is ignored.
+/// Reads a zip of exported settings. Every `settings.json` must be a JSON object; anything outside the index's
+/// programs is ignored. (A zip of Toolbox 2.1.0 holds only `settings.json` per program – the same layout.)
 pub fn read(bytes: &[u8]) -> Result<Contents, String> {
     let files: BTreeMap<String, Vec<u8>> = zip::read(bytes, MAX_FILE)?.into_iter().collect();
     let index: Index = files.get(INDEX).and_then(|b| serde_json::from_slice(b).ok()).ok_or("this zip holds no exported settings of the Windows Toolbox")?;
@@ -85,9 +131,20 @@ pub fn read(bytes: &[u8]) -> Result<Contents, String> {
         if id.is_empty() || !id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
             continue;
         }
-        if let Some(bytes) = files.get(&program_file(&id)) {
-            object(&program_file(&id), bytes)?;
-            contents.programs.insert(id, (name, bytes.clone()));
+        let prefix = program_file(&id, "");
+        let mut found = vec![];
+        for (path, bytes) in files.range(prefix.clone()..) {
+            let Some(rel) = path.strip_prefix(&prefix) else { break };
+            if !safe(rel) {
+                continue;
+            }
+            if rel == "settings.json" {
+                object(path, bytes)?;
+            }
+            found.push((rel.to_string(), bytes.clone()));
+        }
+        if !found.is_empty() {
+            contents.programs.insert(id, (name, found));
         }
     }
     Ok(contents)
@@ -99,21 +156,33 @@ pub struct Plan {
     pub file: PathBuf,
     /// The Toolbox's own settings: look, language, the switches – and the programs it lists that are found here.
     pub toolbox: bool,
-    /// Programs on the list whose settings it replaces.
+    /// Programs on the list whose `data\` it puts back.
     pub programs: Vec<Text>,
     /// Programs in the file that are not on the list here: left out.
     pub skipped: Vec<Text>,
 }
 
-/// Writes one settings file the way `kit::settings` does: aside first, then renamed – never half a file.
-pub fn write_settings(file: &Path, bytes: &[u8]) -> Result<(), String> {
+/// Writes one file the way `kit::settings` does: aside first, then renamed – never half a file.
+pub fn write_file(file: &Path, bytes: &[u8]) -> Result<(), String> {
     let fail = |e: std::io::Error| format!("{}: {e}", file.display());
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).map_err(fail)?;
     }
-    let tmp = file.with_extension("json.tmp");
+    let mut tmp = file.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
     std::fs::write(&tmp, bytes).map_err(fail)?;
     std::fs::rename(&tmp, file).map_err(fail)
+}
+
+/// Puts a program's exported files back into its `data\`. Files that are there and not in the zip stay.
+pub fn put_back(entry: &Entry, files: &Files) -> Result<(), String> {
+    let dir = data_dir(entry);
+    for (rel, bytes) in files {
+        let file = rel.split('/').fold(dir.clone(), |path, part| path.join(part));
+        write_file(&file, bytes)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -131,27 +200,53 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("toolbox-backup-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let toolbox = dir.join("Toolbox/data/settings.json");
-        write_settings(&toolbox, br#"{"language":"de","programs":["..\\Zones"]}"#).unwrap();
+        write_file(&toolbox, br#"{"language":"de","programs":["..\\Zones"]}"#).unwrap();
         let zones = entry(&dir.join("Zones"), r#"{"id":"zones","name":"Zones","exe":"Zones.exe","protocol":1}"#);
-        write_settings(&settings_file(&zones), br#"{"entries":[1,2]}"#).unwrap();
+        write_file(&settings_file(&zones), br#"{"entries":[1,2]}"#).unwrap();
+        // Everything else in data\ goes along – a login, a backup in a subfolder – but no logs.
+        write_file(&data_dir(&zones).join("login.json"), b"{}").unwrap();
+        write_file(&data_dir(&zones).join("backup").join("a b.url"), b"url").unwrap();
+        for log in ["log.txt", "log.old.txt", "monitor.log", "x.tmp"] {
+            write_file(&data_dir(&zones).join(log), b"log").unwrap();
+        }
         let script = entry(&dir.join("Script"), r#"{"id":"script","name":"Script","run":"s.ps1"}"#);
-        write_settings(&script.options_file(), br#"{"Pos":"Left"}"#).unwrap();
-        // Never started: no settings file, nothing to take along.
+        write_file(&script.options_file(), br#"{"Pos":"Left"}"#).unwrap();
+        // Never started: nothing in data\, nothing to take along.
         let fresh = entry(&dir.join("Fresh"), r#"{"id":"fresh","name":"Fresh","exe":"F.exe","protocol":1}"#);
 
-        let (bytes, count) = export(&toolbox, &[zones, script, fresh], "2.1.0").unwrap();
+        let (bytes, count) = export(&toolbox, &[zones.clone(), script, fresh], "2.1.1").unwrap();
         assert_eq!(count, 2);
         let contents = read(&bytes).unwrap();
         assert_eq!(contents.toolbox.unwrap()["language"], "de");
         assert_eq!(contents.programs.keys().collect::<Vec<_>>(), ["script", "zones"]);
-        assert_eq!(contents.programs["zones"].1, br#"{"entries":[1,2]}"#);
+        let names: Vec<&str> = contents.programs["zones"].1.iter().map(|(rel, _)| rel.as_str()).collect();
+        assert_eq!(names, ["backup/a b.url", "login.json", "settings.json"]);
 
-        // Not ours, broken, or with an id that would leave its folder.
+        // Put back into another copy: the subfolder is made, what was there and not in the zip stays.
+        let other = entry(&dir.join("Other"), r#"{"id":"zones","name":"Zones","exe":"Zones.exe","protocol":1}"#);
+        write_file(&data_dir(&other).join("mine.json"), b"mine").unwrap();
+        put_back(&other, &contents.programs["zones"].1).unwrap();
+        assert_eq!(std::fs::read(data_dir(&other).join("backup").join("a b.url")).unwrap(), b"url");
+        assert_eq!(std::fs::read(settings_file(&other)).unwrap(), br#"{"entries":[1,2]}"#);
+        assert!(data_dir(&other).join("mine.json").exists());
+
+        // A zip of 2.1.0 (settings.json only) reads the same.
+        let old = [
+            (INDEX.to_string(), br#"{"version":"2.1.0","programs":[{"id":"zones","name":"Zones"}]}"#.to_vec()),
+            (program_file("zones", "settings.json"), b"{}".to_vec()),
+        ];
+        assert_eq!(read(&zip::write(&old)).unwrap().programs["zones"].1, [("settings.json".to_string(), b"{}".to_vec())]);
+
+        // Not ours, broken, or with an id or a path that would leave its folder.
         assert!(read(&zip::write(&[("a.txt".into(), b"x".to_vec())])).is_err());
         let index = |id: &str| (INDEX.to_string(), format!(r#"{{"version":"2","programs":[{{"id":"{id}","name":"X"}}]}}"#).into_bytes());
-        assert!(read(&zip::write(&[index("x"), (program_file("x"), b"[1]".to_vec())])).is_err());
+        assert!(read(&zip::write(&[index("x"), (program_file("x", "settings.json"), b"[1]".to_vec())])).is_err());
         let sneaky = read(&zip::write(&[index("../x"), ("programs/../x/settings.json".into(), b"{}".to_vec())])).unwrap();
         assert!(sneaky.programs.is_empty() && sneaky.toolbox.is_none());
+        let paths = ["../a.json", "a/../../b.json", "C:/a.json", "a\\..\\b.json", "/a.json", "log.txt"];
+        let mut files = vec![index("x")];
+        files.extend(paths.iter().map(|p| (program_file("x", p), b"{}".to_vec())));
+        assert!(read(&zip::write(&files)).unwrap().programs.is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 }
