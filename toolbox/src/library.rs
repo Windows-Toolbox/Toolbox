@@ -235,10 +235,71 @@ pub struct Library {
     /// The Toolbox's folder and its `data\`.
     pub folder: PathBuf,
     pub data: PathBuf,
+    /// Updates under way, by program id – the Toolbox's own under `OWN_ID`.
+    #[serde(default)]
+    pub updating: BTreeMap<String, Updating>,
 }
 
 /// The Toolbox's own id: its manifest lies in its `dist\`, but it does not list itself.
-const OWN_ID: &str = "toolbox";
+pub const OWN_ID: &str = "toolbox";
+
+// ---------- updates ----------
+
+/// How far an update is (DESIGN.md 9) – shown on the program's page instead of its Update button.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "step", content = "version", rename_all = "snake_case")]
+pub enum Updating {
+    /// Asking GitHub for the latest release.
+    Checking,
+    /// Loading this version and checking its signature.
+    Downloading(String),
+    /// Swapping the files.
+    Installing(String),
+}
+
+/// Whether a program can be updated from here.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Updatable {
+    /// Its manifest names no repository or no key: it cannot be updated (a script copied by hand, Last Bastion).
+    No,
+    /// It is built on this PC (a `dist\` below its sources): the hint "run build.ps1" instead of the button.
+    Built,
+    Yes,
+}
+
+/// What an update needs to know about a program – for one on the list and for the Toolbox itself.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Target {
+    pub id: String,
+    pub name: Text,
+    /// Where its manifest lies: the zip is unpacked into this folder.
+    pub home: PathBuf,
+    pub version: String,
+    pub repository: Option<String>,
+    pub key: Option<String>,
+}
+
+impl Target {
+    pub fn of(manifest: &Manifest, home: &Path) -> Target {
+        Target { id: manifest.id.clone(), name: manifest.name.clone(), home: home.to_path_buf(), version: manifest.version.clone(), repository: manifest.repository.clone(), key: manifest.update_key.clone() }
+    }
+
+    pub fn updatable(&self) -> Updatable {
+        if self.repository.is_none() || self.key.is_none() {
+            Updatable::No
+        } else if kit::update::developer_copy(&self.home) {
+            Updatable::Built
+        } else {
+            Updatable::Yes
+        }
+    }
+}
+
+impl Entry {
+    pub fn target(&self) -> Target {
+        Target::of(&self.manifest, &self.home)
+    }
+}
 
 // ---------- remembering folders ----------
 

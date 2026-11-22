@@ -19,7 +19,8 @@ use kit::proto::{Command, PROTOCOL, State, ToolboxHello, Want};
 use kit::ui::{self, PageView, Toast};
 use kit::{app, i18n, process, t};
 
-use crate::library::{self, Added, Conflict, Entry, Library, Problem};
+use crate::catalog::Offer;
+use crate::library::{self, Added, Conflict, Entry, Library, Problem, Target, Updatable, Updating};
 use crate::talk::{Ask, Tell};
 
 const TITLE: &str = "Windows Toolbox";
@@ -50,6 +51,8 @@ struct Shared {
     show: Option<Option<String>>,
     toasts: Vec<(String, bool)>,
     added: Option<Added>,
+    /// The list of "Get programs" arrived.
+    catalog: Option<Result<Vec<Offer>, String>>,
     /// The agent is gone or said `bye`.
     closed: bool,
     page: PageLink,
@@ -141,6 +144,10 @@ struct App {
     conflicts: Vec<Conflict>,
     /// The folder dialog is open.
     picking: Arc<AtomicBool>,
+    /// "Get programs" is open in the gear …
+    catalog_open: bool,
+    /// … with this list – `None` while it loads.
+    catalog: Option<Result<Vec<Offer>, String>>,
     first_frame: bool,
 }
 
@@ -161,6 +168,28 @@ fn category_label(key: &str, library: &Library, language: &str) -> String {
 fn muted_label(ui: &mut egui::Ui, text: impl Into<String>) {
     let color = ui::muted(ui);
     ui.label(RichText::new(text).color(color));
+}
+
+/// "Update" for one program (DESIGN.md 9) – while it runs, how far it is; for a copy built on this PC the hint to
+/// run `build.ps1` instead; nothing for one that cannot be updated.
+fn update_button(ui: &mut egui::Ui, target: &Target, updating: Option<&Updating>, busy: bool) -> bool {
+    match (target.updatable(), updating) {
+        (_, Some(step)) => {
+            ui.spinner();
+            muted_label(ui, match step {
+                Updating::Checking => t!("update.checking"),
+                Updating::Downloading(version) => t!("update.downloading", version = version),
+                Updating::Installing(version) => t!("update.installing", version = version),
+            });
+            false
+        }
+        (Updatable::Yes, None) => ui.add_enabled(!busy, egui::Button::new(t!("update.button"))).on_hover_text(t!("update.button.hint")).clicked(),
+        (Updatable::Built, None) => {
+            muted_label(ui, t!("update.built"));
+            false
+        }
+        (Updatable::No, None) => false,
+    }
 }
 
 /// A button that opens a file, a folder or an address – the bottom bar shows which while the mouse is over it.
@@ -238,6 +267,9 @@ impl App {
         }
         let show = s.show.take();
         let added = s.added.take();
+        if let Some(catalog) = s.catalog.take() {
+            self.catalog = Some(catalog);
+        }
         let library = s.library.clone()?;
         // The page together with the program it belongs to: for one frame after another program was chosen, the
         // old one's page is still here and must not be drawn under the new one's name.
@@ -320,6 +352,68 @@ impl App {
         });
     }
 
+    /// "Get programs…": opens the list in the gear and loads it (again).
+    fn open_catalog(&mut self) {
+        self.gear = true;
+        self.catalog_open = true;
+        self.catalog = None;
+        self.ask(Ask::Catalog);
+    }
+
+    /// The list of "Get programs": each program with its description and a button – or what is in the way.
+    fn catalog_list(&mut self, ui: &mut egui::Ui, library: &Library) {
+        let language = i18n::language();
+        let busy = !library.updating.is_empty();
+        match &self.catalog {
+            None => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    muted_label(ui, t!("get.loading"));
+                });
+            }
+            Some(Err(why)) => {
+                ui.label(RichText::new(format!("⚠ {}", t!("get.list_failed", why = why))).color(ui::warn(ui)));
+                if ui.button(t!("page.retry")).clicked() {
+                    self.open_catalog();
+                }
+            }
+            Some(Ok(offers)) => {
+                let mut get = None;
+                for offer in offers {
+                    ui.add_space(4.0);
+                    egui::Sides::new().show(
+                        ui,
+                        |ui| {
+                            ui.vertical(|ui| {
+                                ui.label(RichText::new(offer.name.get(&language)).strong());
+                                if !offer.description.is_empty() {
+                                    ui::hint(ui, offer.description.get(&language));
+                                }
+                            });
+                        },
+                        |ui| {
+                            if let Some(step) = library.updating.get(&offer.id) {
+                                muted_label(ui, match step {
+                                    Updating::Checking => t!("update.checking"),
+                                    Updating::Downloading(v) => t!("update.downloading", version = v),
+                                    Updating::Installing(v) => t!("update.installing", version = v),
+                                });
+                                ui.spinner();
+                            } else if library.programs.iter().any(|e| e.id() == offer.id) {
+                                muted_label(ui, format!("✔ {}", t!("get.listed")));
+                            } else if ui.add_enabled(!busy, egui::Button::new(t!("get.button"))).on_hover_text(t!("get.button.hint")).clicked() {
+                                get = Some(offer.id.clone());
+                            }
+                        },
+                    );
+                }
+                if let Some(id) = get {
+                    self.ask(Ask::Get { id });
+                }
+            }
+        }
+    }
+
     /// Keeps the page connection in line with what is shown: only the visible page is connected to its program.
     fn keep_page(&mut self, ctx: &egui::Context, want: Option<&Entry>) {
         let Some(look) = self.look.clone() else { return };
@@ -351,7 +445,7 @@ impl App {
 
     // ---------- a program's page ----------
 
-    fn program_page(&mut self, ui: &mut egui::Ui, entry: &Entry, page: Option<&Page>, page_failed: bool) {
+    fn program_page(&mut self, ui: &mut egui::Ui, entry: &Entry, library: &Library, page: Option<&Page>, page_failed: bool) {
         let language = i18n::language();
         let m = &entry.manifest;
         let running = entry.run.running == Some(true);
@@ -418,6 +512,9 @@ impl App {
             }
             if ui.button(t!("page.remove")).on_hover_text(t!("page.remove.hint")).clicked() {
                 self.ask(Ask::Remove { stored: entry.stored.clone() });
+            }
+            if update_button(ui, &entry.target(), library.updating.get(entry.id()), !library.updating.is_empty()) {
+                self.ask(Ask::Update { id: entry.id().into() });
             }
         });
         if entry.has_autostart() {
@@ -525,8 +622,19 @@ impl App {
         ui::section(ui, &t!("gear.programs"), "programs", |ui| {
             ui::hint(ui, t!("gear.programs.text"));
             ui.add_space(2.0);
-            if ui.add_enabled(!self.picking.load(Ordering::SeqCst), egui::Button::new(t!("gear.add"))).clicked() {
-                self.add_program(&ctx, library);
+            ui.horizontal_wrapped(|ui| {
+                if ui.button(t!("get.open")).on_hover_text(t!("get.open.hint")).clicked() {
+                    self.open_catalog();
+                }
+                if ui.add_enabled(!self.picking.load(Ordering::SeqCst), egui::Button::new(t!("gear.add"))).clicked() {
+                    self.add_program(&ctx, library);
+                }
+            });
+            if self.catalog_open {
+                ui.add_space(4.0);
+                self.catalog_list(ui, library);
+                ui.add_space(4.0);
+                ui.separator();
             }
             let mut answered = None;
             for (i, conflict) in self.conflicts.iter().enumerate() {
@@ -546,6 +654,14 @@ impl App {
                 let conflict = self.conflicts.remove(i);
                 if replace {
                     self.ask(Ask::Replace { folder: conflict.new });
+                }
+            }
+            let updatable = library.programs.iter().any(|e| e.target().updatable() == Updatable::Yes);
+            if updatable {
+                ui.add_space(2.0);
+                let busy = !library.updating.is_empty();
+                if ui.add_enabled(!busy, egui::Button::new(t!("update.all"))).on_hover_text(t!("update.all.hint")).clicked() {
+                    self.ask(Ask::UpdateAll);
                 }
             }
             ui.add_space(6.0);
@@ -583,6 +699,12 @@ impl App {
             ui::hint(ui, t!("gear.version", version = crate::META.version));
             ui.add_space(2.0);
             ui.horizontal_wrapped(|ui| {
+                let own = kit::manifest::Manifest::parse(crate::META.manifest).ok().map(|m| Target::of(&m, &library.folder));
+                if let Some(own) = own {
+                    if update_button(ui, &own, library.updating.get(library::OWN_ID), !library.updating.is_empty()) {
+                        self.ask(Ask::Update { id: library::OWN_ID.into() });
+                    }
+                }
                 open_button(ui, t!("page.open_folder"), &library.folder.to_string_lossy());
                 let log = library.data.join("log.txt");
                 if log.exists() {
@@ -610,9 +732,14 @@ impl App {
         ui.add_space(4.0);
         muted_label(ui, t!("welcome.text"));
         ui.add_space(8.0);
-        if ui.add_enabled(!self.picking.load(Ordering::SeqCst), egui::Button::new(t!("gear.add"))).clicked() {
-            self.add_program(&ctx, library);
-        }
+        ui.horizontal(|ui| {
+            if ui.button(t!("get.open")).on_hover_text(t!("get.open.hint")).clicked() {
+                self.open_catalog();
+            }
+            if ui.add_enabled(!self.picking.load(Ordering::SeqCst), egui::Button::new(t!("gear.add"))).clicked() {
+                self.add_program(&ctx, library);
+            }
+        });
     }
 }
 
@@ -726,7 +853,7 @@ impl App {
         egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match shown {
                 _ if self.gear => self.gear_page(ui, &library),
-                Some(entry) => self.program_page(ui, entry, page.as_ref().filter(|(id, _)| id == entry.id()).map(|(_, page)| page), page_failed),
+                Some(entry) => self.program_page(ui, entry, &library, page.as_ref().filter(|(id, _)| id == entry.id()).map(|(_, page)| page), page_failed),
                 None => self.welcome(ui, &library),
             });
         });
@@ -764,6 +891,7 @@ pub fn run(wanted: Option<String>) {
                             }
                             Tell::Toast { text, error } => s.toasts.push((text, error)),
                             Tell::Added(added) => s.added = Some(added),
+                            Tell::Catalog { offers } => s.catalog = Some(offers),
                             Tell::Show { id } => s.show = Some(id),
                             Tell::Bye => break,
                             Tell::Unknown => continue,
@@ -793,6 +921,8 @@ pub fn run(wanted: Option<String>) {
                 toast: Toast::default(),
                 conflicts: vec![],
                 picking: Arc::new(AtomicBool::new(false)),
+                catalog_open: false,
+                catalog: None,
                 first_frame: true,
             };
             Ok(Box::new(app))
@@ -844,11 +974,11 @@ mod tests {
             Missing { stored: "..\\Broken".into(), folder: "C:\\Broken".into(), problem: Problem::Broken("expected value at line 1".into()) },
             Missing { stored: "..\\Twice".into(), folder: "C:\\Twice".into(), problem: Problem::SameId("Monitor".into()) },
         ];
-        let library = |programs: &[Entry], theme: &str| Arc::new(Library { settings: Settings { language: "en".into(), theme: theme.into(), zoom: 1.0, programs: vec![] }, programs: programs.to_vec(), missing: missing.clone(), folder: "C:\\Nowhere\\Toolbox\\dist".into(), data: "C:\\Nowhere\\Toolbox\\dist\\data".into() });
+        let library = |programs: &[Entry], theme: &str| Arc::new(Library { settings: Settings { language: "en".into(), theme: theme.into(), zoom: 1.0, programs: vec![] }, programs: programs.to_vec(), missing: missing.clone(), folder: "C:\\Nowhere\\Toolbox\\dist".into(), data: "C:\\Nowhere\\Toolbox\\dist\\data".into(), updating: Default::default() });
 
         for theme in ["dark", "light"] {
             let shared = Arc::new(Mutex::new(Shared::default()));
-            let mut app = App { shared: shared.clone(), agent: agent.clone(), look: None, zoom_changed: None, zoom_exact: 1.0, selected: None, wanted: None, tab: String::new(), gear: false, view: PageView::default(), toast: Toast::default(), conflicts: vec![], picking: Arc::new(AtomicBool::new(false)), first_frame: true };
+            let mut app = App { shared: shared.clone(), agent: agent.clone(), look: None, zoom_changed: None, zoom_exact: 1.0, selected: None, wanted: None, tab: String::new(), gear: false, view: PageView::default(), toast: Toast::default(), conflicts: vec![], picking: Arc::new(AtomicBool::new(false)), catalog_open: false, catalog: None, first_frame: true };
             let ctx = egui::Context::default();
             let draw = |app: &mut App| ctx.run_ui(Default::default(), |ui| app.frame(ui)).textures_delta.clear();
 
@@ -875,6 +1005,34 @@ mod tests {
                 draw(&mut app);
                 assert_eq!((app.selected.as_deref(), app.tab.as_str()), (Some(e.id()), category(e)));
                 draw(&mut app);
+            }
+            // An update under way – on a page and for the Toolbox in the gear – and one program that can be updated.
+            {
+                let mut updating = library(&programs, theme);
+                let u = Arc::make_mut(&mut updating);
+                u.updating.insert("monitor".into(), Updating::Downloading("2.1".into()));
+                u.updating.insert(library::OWN_ID.into(), Updating::Checking);
+                u.programs[1].manifest.repository = Some("Windows-Toolbox/Crashed".into());
+                u.programs[1].manifest.update_key = Some(kit::update::KEY.into());
+                lock(&shared).library = Some(updating);
+                for id in ["monitor", "crashed"] {
+                    lock(&shared).show = Some(Some(id.into()));
+                    draw(&mut app);
+                }
+                app.gear = true;
+                draw(&mut app);
+                // "Get programs": loading, failed, and loaded – one program on the list already, one being got.
+                app.catalog_open = true;
+                draw(&mut app);
+                lock(&shared).catalog = Some(Err("GitHub cannot be reached".into()));
+                draw(&mut app);
+                let offer = |id: &str| Offer { id: id.into(), name: id.into(), description: "What it does".into(), repository: "o/r".into(), update_key: kit::update::KEY.into() };
+                lock(&shared).catalog = Some(Ok(vec![offer("monitor"), offer("new_one"), offer("other_one")]));
+                Arc::make_mut(lock(&shared).library.as_mut().unwrap()).updating.insert("new_one".into(), Updating::Installing("1.0".into()));
+                draw(&mut app);
+                assert!(matches!(&app.catalog, Some(Ok(list)) if list.len() == 3));
+                app.gear = false;
+                app.catalog_open = false;
             }
             // A tab that lost its last program: the window moves on by itself.
             lock(&shared).library = Some(library(&programs[..4], theme));

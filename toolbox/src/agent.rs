@@ -16,10 +16,11 @@ use kit::process::{self, Job};
 use kit::proto::{Command, Health, PROTOCOL, State, ToolboxHello, Tray as ProgramTray, Want};
 use kit::settings::Settings;
 use kit::tray::{self, Event, Icon, Item, Tray, Waker};
-use kit::{app, i18n, t};
+use kit::{app, i18n, t, update};
 use windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
 
-use crate::library::{self, Entry, Library, Missing, Run};
+use crate::catalog::{self, Offer};
+use crate::library::{self, Entry, Library, Missing, Run, Target, Updatable, Updating};
 use crate::talk::{Ask, Tell};
 
 /// Fixed identities of the tray icons – Windows remembers "show this icon" per exe path and uid (DESIGN.md 6).
@@ -78,6 +79,10 @@ struct Agent {
     last_sent: String,
     /// The thread that looks at scripts and plain exes once a second runs (only while a window is open).
     watching: bool,
+    /// Updates under way, by program id (`library::OWN_ID`: the Toolbox) – "Get" shows its steps here too.
+    updating: BTreeMap<String, Updating>,
+    /// The list of "Get programs" as it was last loaded and checked; "Get" takes a program only from it.
+    catalog: Vec<Offer>,
 }
 
 type Shared = Arc<Mutex<Agent>>;
@@ -101,7 +106,7 @@ impl Agent {
     }
 
     fn library(&self) -> Library {
-        Library { settings: self.settings.value.clone(), programs: self.programs.clone(), missing: self.missing.clone(), folder: self.base.clone(), data: app::data_dir() }
+        Library { settings: self.settings.value.clone(), programs: self.programs.clone(), missing: self.missing.clone(), folder: self.base.clone(), data: app::data_dir(), updating: self.updating.clone() }
     }
 
     fn tell(&self, msg: &Tell) {
@@ -383,6 +388,251 @@ fn restart(shared: &Shared, id: &str) {
     }
 }
 
+// ---------- updates ----------
+
+/// What one update came to.
+#[derive(Debug, Clone, PartialEq)]
+enum Outcome {
+    /// Now at this version.
+    Updated(String),
+    /// The installed version is the latest.
+    UpToDate,
+    /// The repository has no release yet.
+    NoRelease,
+    Failed(String),
+}
+
+/// The Toolbox itself, as something to update: its manifest is compiled in, its folder is the agent's.
+fn own_target(base: &std::path::Path) -> Option<Target> {
+    let manifest = kit::manifest::Manifest::parse(crate::META.manifest).ok()?;
+    Some(Target::of(&manifest, base))
+}
+
+fn target_of(a: &Agent, id: &str) -> Option<Target> {
+    if id == library::OWN_ID { own_target(&a.base) } else { a.entry(id).map(Entry::target) }
+}
+
+/// Before the files are swapped, a kit program ends – the page-only process too, so the window reconnects to the
+/// new exe. Scripts and plain exes are left alone: a running file is put aside and keeps running, the new one
+/// counts from their next start (a script is only read when it starts). `true` if its workers ran.
+fn make_way(shared: &Shared, id: &str) -> bool {
+    let Some(entry) = lock(shared).entry(id).cloned() else { return false };
+    if entry.kind != Kind::Kit || !ipc::exists(id) {
+        return false;
+    }
+    let ran = entry.run.running == Some(true);
+    let link = lock(shared).links.get(id).map(|l| l.conn.clone());
+    match link {
+        Some(conn) => {
+            let _ = conn.send(&Command::Quit);
+        }
+        None => {
+            if let Ok(conn) = ipc::connect(id) {
+                let _ = conn.send(&Command::Quit);
+            }
+        }
+    }
+    if !wait_until(Duration::from_secs(5), || !ipc::exists(id)) {
+        app::log(&format!("{id} did not end before its update; its files are put aside"));
+    }
+    ran
+}
+
+/// One update, start to end (DESIGN.md 9): ask GitHub, and only if there is a newer release load it, check its
+/// signature against the installed version's key, make way, swap the files, start again what ran. The page shows
+/// each step.
+fn update_one(shared: &Shared, target: &Target) -> Outcome {
+    let step = |s: Option<Updating>| set_step(shared, &target.id, s);
+    step(Some(Updating::Checking));
+    let result = (|| -> Result<Outcome, String> {
+        let (Some(repository), Some(key)) = (&target.repository, &target.key) else { return Err(t!("update.not_possible")) };
+        let Some(release) = update::latest(repository, &target.id)? else { return Ok(Outcome::NoRelease) };
+        if update::compare_versions(&release.version, &target.version) != std::cmp::Ordering::Greater {
+            return Ok(Outcome::UpToDate);
+        }
+        step(Some(Updating::Downloading(release.version.clone())));
+        let zip = update::download(&release, key)?;
+        step(Some(Updating::Installing(release.version.clone())));
+        let own = target.id == library::OWN_ID;
+        let ran = !own && make_way(shared, &target.id);
+        let installed = update::install(&zip, &target.home, &target.id, Some(&target.version));
+        if !own {
+            // The new manifest (its version) – or, after a failure, the old files, which are back in place.
+            let mut a = lock(shared);
+            a.reload();
+            a.refresh();
+            a.changed();
+        }
+        if ran {
+            start(shared, &target.id);
+        }
+        Ok(Outcome::Updated(installed?.version))
+    })();
+    step(None);
+    result.unwrap_or_else(Outcome::Failed)
+}
+
+/// How far the update (or "Get") of `id` is – `None`: done.
+fn set_step(shared: &Shared, id: &str, step: Option<Updating>) {
+    let mut a = lock(shared);
+    match step {
+        Some(s) => a.updating.insert(id.to_string(), s),
+        None => a.updating.remove(id),
+    };
+    a.changed();
+}
+
+/// The message for one outcome.
+fn outcome_text(target: &Target, outcome: &Outcome) -> (String, bool) {
+    let name = target.name.get(&i18n::language()).to_string();
+    match outcome {
+        Outcome::Updated(version) => (t!("toast.update.updated", name = name, version = version), false),
+        Outcome::UpToDate => (t!("toast.update.up_to_date", name = name, version = target.version), false),
+        Outcome::NoRelease => (t!("toast.update.no_release", name = name), false),
+        Outcome::Failed(why) => (t!("toast.update.failed", name = name, why = why), true),
+    }
+}
+
+/// The Toolbox was updated: it ends and the new version starts (the window too, if one is open).
+fn restart_updated(shared: &Shared) {
+    let mut a = lock(shared);
+    a.quit = Some(false);
+    a.relaunch = true;
+    if let Some(waker) = a.waker {
+        waker.wake();
+    }
+}
+
+/// "Update" on a page, on a thread of its own: it waits for GitHub.
+fn update_program(shared: &Shared, id: String) {
+    let target = {
+        let a = lock(shared);
+        if !a.updating.is_empty() {
+            return a.toast(t!("toast.update.busy"), false);
+        }
+        match target_of(&a, &id) {
+            Some(t) => t,
+            None => return,
+        }
+    };
+    let shared = shared.clone();
+    std::thread::spawn(move || {
+        let outcome = update_one(&shared, &target);
+        let (text, error) = outcome_text(&target, &outcome);
+        lock(&shared).toast(text, error);
+        if target.id == library::OWN_ID && matches!(outcome, Outcome::Updated(_)) {
+            restart_updated(&shared);
+        }
+    });
+}
+
+/// "Update all": one program after the other, the Toolbox last (it restarts afterwards). One message at the end.
+fn update_all(shared: &Shared) {
+    let targets: Vec<Target> = {
+        let a = lock(shared);
+        if !a.updating.is_empty() {
+            return a.toast(t!("toast.update.busy"), false);
+        }
+        a.programs.iter().map(Entry::target).chain(own_target(&a.base)).filter(|t| t.updatable() == Updatable::Yes).collect()
+    };
+    if targets.is_empty() {
+        return lock(shared).toast(t!("toast.update.nothing"), false);
+    }
+    let shared = shared.clone();
+    std::thread::spawn(move || {
+        let (mut updated, mut current, mut problems, mut restart) = (0, 0, vec![], false);
+        for target in &targets {
+            let outcome = update_one(&shared, target);
+            match &outcome {
+                Outcome::Updated(_) => {
+                    updated += 1;
+                    restart |= target.id == library::OWN_ID;
+                }
+                Outcome::UpToDate => current += 1,
+                Outcome::NoRelease | Outcome::Failed(_) => problems.push(outcome_text(target, &outcome).0),
+            }
+        }
+        let mut text = t!("toast.update.all", updated = updated, current = current);
+        if !problems.is_empty() {
+            text = format!("{text} {}", problems.join(" · "));
+        }
+        lock(&shared).toast(text, !problems.is_empty());
+        if restart {
+            restart_updated(&shared);
+        }
+    });
+}
+
+// ---------- get programs ----------
+
+/// "Get programs": loads the signed list (on a thread: it waits for GitHub) and sends it to the window.
+fn load_catalog(shared: &Shared) {
+    let shared = shared.clone();
+    std::thread::spawn(move || {
+        let offers = catalog::load();
+        if let Err(e) = &offers {
+            app::log(&format!("the list of programs could not be loaded: {e}"));
+        }
+        let mut a = lock(&shared);
+        if let Ok(list) = &offers {
+            a.catalog = list.clone();
+        }
+        a.tell(&Tell::Catalog { offers });
+    });
+}
+
+/// "Get": the program's latest release, checked against the key the signed list names for it, unpacked into
+/// `programs\<id>\` next to the Toolbox and put on the list – then its page is shown.
+fn get_program(shared: &Shared, id: String) {
+    let (offer, base) = {
+        let a = lock(shared);
+        if !a.updating.is_empty() {
+            return a.toast(t!("toast.update.busy"), false);
+        }
+        if let Some(listed) = a.entry(&id) {
+            return a.toast(t!("toast.get.listed", name = name_of(listed)), false);
+        }
+        match a.catalog.iter().find(|o| o.id == id) {
+            Some(offer) => (offer.clone(), a.base.clone()),
+            None => return,
+        }
+    };
+    let shared = shared.clone();
+    std::thread::spawn(move || {
+        let step = |s: Option<Updating>| set_step(&shared, &offer.id, s);
+        step(Some(Updating::Checking));
+        let folder = catalog::folder(&base, &offer.id);
+        let result = (|| -> Result<String, String> {
+            let Some(release) = update::latest(&offer.repository, &offer.id)? else { return Err(t!("get.no_release")) };
+            step(Some(Updating::Downloading(release.version.clone())));
+            let zip = update::download(&release, &offer.update_key)?;
+            step(Some(Updating::Installing(release.version.clone())));
+            let installed = update::install(&zip, &folder, &offer.id, None)?;
+            let mut a = lock(&shared);
+            let a = &mut *a;
+            let added = library::add(&mut a.settings.value, &a.programs, &a.base, &folder);
+            a.save();
+            a.reload();
+            a.refresh();
+            a.changed();
+            if added.added.is_empty() {
+                return Err(added.broken.first().cloned().unwrap_or_else(|| t!("get.not_added")));
+            }
+            Ok(installed.version)
+        })();
+        step(None);
+        let name = offer.name.get(&i18n::language()).to_string();
+        let a = lock(&shared);
+        match result {
+            Ok(version) => {
+                a.toast(t!("toast.get.done", name = name, version = version), false);
+                a.tell(&Tell::Show { id: Some(offer.id.clone()) });
+            }
+            Err(why) => a.toast(t!("toast.get.failed", name = name, why = why), true),
+        }
+    });
+}
+
 // ---------- the window ----------
 
 /// Opens the window – or brings the open one to the front – on this program's page if given.
@@ -584,6 +834,10 @@ fn handle(shared: &Shared, ask: Ask) {
             a.last_sent.clear();
             a.changed();
         }
+        Ask::Update { id } => update_program(shared, id),
+        Ask::UpdateAll => update_all(shared),
+        Ask::Catalog => load_catalog(shared),
+        Ask::Get { id } => get_program(shared, id),
         Ask::Window | Ask::Unknown => {}
     }
 }
@@ -792,6 +1046,8 @@ pub fn run(open: bool) {
         waker: None,
         last_sent: String::new(),
         watching: false,
+        updating: BTreeMap::new(),
+        catalog: vec![],
     };
     let shared: Shared = Arc::new(Mutex::new(agent));
 
@@ -891,6 +1147,8 @@ mod tests {
             waker: None,
             last_sent: String::new(),
             watching: false,
+            updating: BTreeMap::new(),
+            catalog: vec![],
         }
     }
 

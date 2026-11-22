@@ -1,0 +1,54 @@
+{
+  "programs": [
+    {
+      "id": "screen_zones",
+      "name": "Screen Zones",
+      "description": {
+        "de": "Setzt Spiele und Programme rahmenlos in einen festen Bereich des Bildschirms und hält sie dort – ein Eintrag pro Spiel, bei jedem Start von selbst. Der Nachfolger des Rayman-Legends-Skripts.",
+        "en": "Puts games and programs borderless into a fixed area of the screen and keeps them there – one entry per game, applied every time it starts. The successor of the Rayman Legends script."
+      },
+      "repository": "Windows-Toolbox/Screen-Zones",
+      "update_key": "03P/g6dXQTOEWT4LCAhPitblYen9X+e3RW/UTLgHheM="
+    },
+    {
+      "id": "steam_shortcuts",
+      "name": "Steam Shortcuts",
+      "description": {
+        "de": "Trägt Programme und Spiele in Steam ein, damit der Steam Controller darin geht, und stellt Desktop-Symbole auf Steam um – und wieder zurück.",
+        "en": "Adds programs and games to Steam, so the Steam Controller works in them, and points desktop icons at Steam – and back."
+      },
+      "repository": "Windows-Toolbox/Steam-Shortcuts",
+      "update_key": "03P/g6dXQTOEWT4LCAhPitblYen9X+e3RW/UTLgHheM="
+    },
+    {
+      "id": "discord_plus",
+      "name": "Discord Plus",
+      "description": {
+        "de": "Erweiterungen für Discord. Call-Status: zeigt „Im Call“ an, sobald du telefonierst oder in einem Voice-Chat bist – auch für Freunde, die den Server oder Anruf nicht sehen können.",
+        "en": "Extensions for Discord. Call status: shows “In a call” as soon as you're on a call or in a voice chat – even for friends who can't see the server or call."
+      },
+      "repository": "Windows-Toolbox/Discord-Plus",
+      "update_key": "03P/g6dXQTOEWT4LCAhPitblYen9X+e3RW/UTLgHheM="
+    },
+    {
+      "id": "hardware_monitor",
+      "name": "Hardware Monitor",
+      "description": {
+        "de": "CPU- und GPU-Temperatur in der Taskleiste; ein Klick auf ein Symbol zeigt fast alle Hardware-Werte – dazu Stromverbrauch, Lüfterkurven und Laufwerkszustand.",
+        "en": "CPU and GPU temperature in the taskbar; a click on an icon shows almost all hardware values – plus power consumption, fan curves and drive health."
+      },
+      "repository": "Windows-Toolbox/Hardware-Monitor",
+      "update_key": "03P/g6dXQTOEWT4LCAhPitblYen9X+e3RW/UTLgHheM="
+    },
+    {
+      "id": "cube_game",
+      "name": "Cube Game",
+      "description": {
+        "de": "Das Spielfenster selbst ist die Arena – und es schrumpft ständig. Schieß gegen die Ränder, um es wieder aufzudrücken.",
+        "en": "The game window itself is the arena – and it keeps shrinking. Shoot its edges to push them back out."
+      },
+      "repository": "Windows-Toolbox/Cube-Game",
+      "update_key": "03P/g6dXQTOEWT4LCAhPitblYen9X+e3RW/UTLgHheM="
+    }
+  ]
+}

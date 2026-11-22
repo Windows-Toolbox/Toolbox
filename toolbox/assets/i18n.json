@@ -261,5 +261,118 @@
   "toast.did_not_stop": {
     "de": "{name} hat sich nicht beenden lassen.",
     "en": "{name} could not be stopped."
+  },
+
+  "update.button": {
+    "de": "Aktualisieren",
+    "en": "Update"
+  },
+  "update.button.hint": {
+    "de": "Fragt GitHub nach einer neueren Version und installiert sie – deine Einstellungen (data\\) bleiben, wie sie sind.",
+    "en": "Asks GitHub for a newer version and installs it – your settings (data\\) stay as they are."
+  },
+  "update.all": {
+    "de": "Alle aktualisieren",
+    "en": "Update all"
+  },
+  "update.all.hint": {
+    "de": "Jedes Programm, das sich aktualisieren lässt, nacheinander – die Toolbox zuletzt, sie startet danach neu.",
+    "en": "Every program that can be updated, one after the other – the Toolbox last; it restarts afterwards."
+  },
+  "update.built": {
+    "de": "Hier gebaut – eine neue Version mit build.ps1",
+    "en": "Built here – a new version comes with build.ps1"
+  },
+  "update.checking": {
+    "de": "Suche nach Updates …",
+    "en": "Looking for updates …"
+  },
+  "update.downloading": {
+    "de": "Lade Version {version} …",
+    "en": "Loading version {version} …"
+  },
+  "update.installing": {
+    "de": "Installiere Version {version} …",
+    "en": "Installing version {version} …"
+  },
+  "update.not_possible": {
+    "de": "das Programm nennt kein Repository oder keinen Schlüssel für Updates",
+    "en": "the program names no repository or no key for updates"
+  },
+  "toast.update.updated": {
+    "de": "{name} ist jetzt auf Version {version}.",
+    "en": "{name} is now at version {version}."
+  },
+  "toast.update.up_to_date": {
+    "de": "{name} ist aktuell (Version {version}).",
+    "en": "{name} is up to date (version {version})."
+  },
+  "toast.update.no_release": {
+    "de": "{name}: auf GitHub gibt es noch keine Version zum Herunterladen.",
+    "en": "{name}: there is no release on GitHub yet."
+  },
+  "toast.update.failed": {
+    "de": "{name} ließ sich nicht aktualisieren: {why}",
+    "en": "{name} could not be updated: {why}"
+  },
+  "toast.update.busy": {
+    "de": "Es läuft schon ein Update – einen Moment.",
+    "en": "An update is running already – one moment."
+  },
+  "toast.update.nothing": {
+    "de": "Kein Programm auf der Liste lässt sich aktualisieren.",
+    "en": "No program on the list can be updated."
+  },
+  "get.open": {
+    "de": "Programme holen …",
+    "en": "Get programs …"
+  },
+  "get.open.hint": {
+    "de": "Zeigt die Liste der bekannten Programme – sie wird dafür von GitHub geladen.",
+    "en": "Shows the list of known programs – it is loaded from GitHub for that."
+  },
+  "get.loading": {
+    "de": "Lade die Liste von GitHub …",
+    "en": "Loading the list from GitHub …"
+  },
+  "get.list_failed": {
+    "de": "Die Liste ließ sich nicht laden: {why}",
+    "en": "The list could not be loaded: {why}"
+  },
+  "get.button": {
+    "de": "Holen",
+    "en": "Get"
+  },
+  "get.button.hint": {
+    "de": "Lädt die neueste Version, prüft ihre Signatur, entpackt sie nach programs\\ neben der Toolbox und setzt sie auf die Liste.",
+    "en": "Loads the latest version, checks its signature, unpacks it into programs\\ next to the Toolbox and puts it on the list."
+  },
+  "get.listed": {
+    "de": "auf der Liste",
+    "en": "on the list"
+  },
+  "get.no_release": {
+    "de": "auf GitHub gibt es noch keine Version zum Herunterladen",
+    "en": "there is no release on GitHub yet"
+  },
+  "get.not_added": {
+    "de": "es liegt schon ein Programm mit derselben Kennung auf der Liste",
+    "en": "a program with the same id is on the list already"
+  },
+  "toast.get.done": {
+    "de": "{name} {version} ist da und steht auf der Liste.",
+    "en": "{name} {version} is here and on the list."
+  },
+  "toast.get.failed": {
+    "de": "{name} ließ sich nicht holen: {why}",
+    "en": "{name} could not be got: {why}"
+  },
+  "toast.get.listed": {
+    "de": "{name} steht schon auf der Liste.",
+    "en": "{name} is on the list already."
+  },
+  "toast.update.all": {
+    "de": "Aktualisiert: {updated}, schon aktuell: {current}.",
+    "en": "Updated: {updated}, up to date already: {current}."
   }
 }

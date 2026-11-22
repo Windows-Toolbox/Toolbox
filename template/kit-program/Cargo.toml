@@ -1,0 +1,37 @@
+# A new kit program: copy this folder into a repo of its own, then change the names marked with ◆ – here, in
+# build.ps1 ($package, $exe) and in README.md. Everything else stays as it is.
+[package]
+name = "example"                                    # ◆ the package name (build.ps1: $package)
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "An example kit program: it counts the minutes it runs."   # ◆
+repository = "https://github.com/Windows-Toolbox/Example"                 # ◆ where its releases will be
+
+# What the Toolbox needs to know; program.json is generated from this by build.rs (Toolbox\DESIGN.md 15.4).
+[package.metadata.toolbox]
+id = "example"                                      # ◆ [a-z0-9_] – pipe, autostart and data names come from it
+exe = "Example.exe"                                 # ◆ the name build.ps1 gives the exe ($exe)
+category = { de = "Allgemein", en = "General" }
+background = true                                   # runs without a window: tray, "Start with Windows"
+name = "Example"                                    # ◆ or { de = "…", en = "…" }
+description = { de = "Ein Beispiel-Programm: zählt die Minuten, die es läuft.", en = "An example program: it counts the minutes it runs." }   # ◆
+
+[dependencies]
+# The shared library of the Windows Toolbox, compiled in (from its main branch).
+kit = { package = "toolbox-kit", git = "https://github.com/Windows-Toolbox/Toolbox" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[build-dependencies]
+kit = { package = "toolbox-kit", git = "https://github.com/Windows-Toolbox/Toolbox", default-features = false, features = ["build"] }
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+
+# The template lies inside the Toolbox's repo; this keeps cargo from taking it for a part of that workspace.
+# Harmless in a repo of its own – it can stay.
+[workspace]

@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::catalog::Offer;
 use crate::library::{Added, Library};
 
 /// To the agent.
@@ -49,6 +50,14 @@ pub enum Ask {
     SetOption { id: String, name: String, value: Value },
     /// "Restart the Toolbox" in the gear: the agent ends and starts anew; the programs keep running.
     RestartToolbox,
+    /// "Update" on a program's page – `toolbox` (`library::OWN_ID`) is the Toolbox itself.
+    Update { id: String },
+    /// "Update all" in the gear: every program that can be updated, the Toolbox last.
+    UpdateAll,
+    /// "Get programs": load the signed list from GitHub.
+    Catalog,
+    /// "Get" on that list: install this program into `programs\<id>\` and put it on the list.
+    Get { id: String },
     #[serde(other)]
     Unknown,
 }
@@ -66,6 +75,8 @@ pub enum Tell {
     },
     /// What "Add program…" did.
     Added(Added),
+    /// The list of "Get programs" – or why it could not be loaded.
+    Catalog { offers: Result<Vec<Offer>, String> },
     /// Come to the front – on this program's page if given.
     Show {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -96,7 +107,7 @@ mod tests {
 
     #[test]
     fn the_library_travels_as_one_line() {
-        let library = Library { settings: Default::default(), programs: vec![], missing: vec![], folder: "C:\\T".into(), data: "C:\\T\\data".into() };
+        let library = Library { settings: Default::default(), programs: vec![], missing: vec![], folder: "C:\\T".into(), data: "C:\\T\\data".into(), updating: Default::default() };
         let line = serde_json::to_string(&Tell::Library(library.clone())).unwrap();
         assert!(!line.contains('\n'));
         assert_eq!(serde_json::from_str::<Tell>(&line).unwrap(), Tell::Library(library));

@@ -1,0 +1,2 @@
+# PowerShell scripts need CRLF – also when the repo is cloned with core.autocrlf=false
+*.ps1 text eol=crlf

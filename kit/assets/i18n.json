@@ -1,4 +1,12 @@
 {
+  "kit.start.in_zip": {
+    "de": "{name} wurde direkt aus der Zip-Datei gestartet. Windows führt es dann aus einem temporären Ordner aus – deine Einstellungen gingen verloren.\n\nEntpacke die Zip-Datei zuerst (Rechtsklick → Alle extrahieren …) und starte {exe} aus dem entpackten Ordner.",
+    "en": "{name} was started straight from the zip file. Windows then runs it from a temporary folder – your settings would be lost.\n\nUnpack the zip file first (right-click → Extract All …) and start {exe} from the unpacked folder."
+  },
+  "kit.start.read_only": {
+    "de": "{name} kann nicht in seinen Ordner schreiben:\n{folder}\n\nDie Einstellungen liegen neben dem Programm – es braucht darum einen eigenen Ordner, in den du schreiben darfst, also nicht unter „Programme“. Verschiebe den Ordner (zum Beispiel nach „Dokumente“) und starte es noch einmal.",
+    "en": "{name} cannot write to its folder:\n{folder}\n\nIts settings are kept next to the program, so it needs a folder of its own that you can write to – not inside Program Files. Move the folder (for example to Documents) and start it again."
+  },
   "kit.page.newer_toolbox": {
     "de": "Dieser Teil der Seite braucht eine neuere Toolbox.",
     "en": "This part of the page needs a newer Toolbox."

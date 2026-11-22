@@ -1,0 +1,46 @@
+{
+  "status.minutes": {
+    "de": "Läuft seit {minutes} min",
+    "en": "Running for {minutes} min"
+  },
+  "page.status": {
+    "de": "Status",
+    "en": "Status"
+  },
+  "page.stopped": {
+    "de": "Gestoppt – mit „Start“ geht es los.",
+    "en": "Stopped – “Start” sets it going."
+  },
+  "page.settings": {
+    "de": "Einstellungen",
+    "en": "Settings"
+  },
+  "page.in_tray": {
+    "de": "Minuten im Tray-Menü zeigen",
+    "en": "Show the minutes in the tray menu"
+  },
+  "page.every": {
+    "de": "Aktualisieren alle",
+    "en": "Update every"
+  },
+  "page.advanced": {
+    "de": "Erweitert",
+    "en": "Advanced"
+  },
+  "page.open_log": {
+    "de": "Log öffnen",
+    "en": "Open log"
+  },
+  "page.reset": {
+    "de": "Zurücksetzen",
+    "en": "Reset"
+  },
+  "menu.in_tray": {
+    "de": "Minuten zeigen",
+    "en": "Show minutes"
+  },
+  "toast.reset": {
+    "de": "Alle Einstellungen stehen wieder auf ihrem Standard.",
+    "en": "Every setting is back at its default."
+  }
+}

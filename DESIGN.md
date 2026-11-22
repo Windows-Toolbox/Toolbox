@@ -844,18 +844,33 @@ Each step ends in a state that can be used daily and committed. The order follow
 numbers continue the milestones the work so far was done in (M0 prototype, M1 kit + Toolbox, M2 the script page
 and Last Bastion, M3 Discord Plus, M5 Cube Game, plus Screen Zones and Steam Shortcuts in between).
 
-**M3, the rest – releases and updates.** The kit has everything for it already (`kit::update`, `kit::http`, the
-`sign` tool, 15.6, 15.7); the Toolbox does not use it yet.
+**M3, the rest – releases and updates** (built 2026-11-22, not released yet):
 
-- **Update** on a program's page and **Update all** in the gear (section 9) – for all three kinds of programs;
-  on a developer copy (a `dist\` below a git repo) the hint "run `build.ps1`" instead.
-- **Get programs**: `programs.json` in this repo, signed (15.5), loaded only when the list is opened; a click
-  downloads, checks and unpacks a program into `programs\<id>\` next to `Toolbox.exe` and puts it on the list.
-- **The Toolbox's own release**: `release.ps1` in this repo, the first signed release, and the Toolbox updating
-  itself.
-- **`template\` for a kit program**, extracted from Discord Plus (today only the script example lies there).
-- **The two classic mistakes** (section 9): a program started from inside a zip preview or from a folder it cannot
-  write to says what to do instead of running half-working.
+- **Update** on a program's page and **Update all** in the gear (section 9) – for every program whose manifest
+  names `repository` and `update_key`, and for the Toolbox itself (gear → Toolbox). The agent does it on a thread
+  of its own and shows each step on the page (looking – loading version x – installing version x). Only a newer
+  release is loaded. A kit program is ended before the swap (its page-only process too, so the window reconnects
+  to the new exe) and started again if it ran; scripts and plain exes are left running – their files are put
+  aside and the new ones count from the next start. The Toolbox restarts itself after its own update ("Update
+  all" does it last). On a developer copy the button gives way to the hint "built here – run `build.ps1`".
+  Checked for real on 2026-11-22 with the Screen Zones release v1.0.0 from GitHub in a sandbox: 0.9.0 → 1.0.0,
+  also while it ran (ended, swapped, started again).
+- **A release without our files** (the Python Toolbox's v1.0.0 from 2026-10) is not an error: its version still
+  decides "up to date"; only a download of it would fail (`Release::zip` is an `Option`).
+- **Get programs**: `programs.json` in this repo's root with `programs.json.sig` (15.5); in the gear and on the
+  welcome page ("Get programs …"). A click on "Get" loads the latest release, checks it against the key the
+  signed list names, unpacks it into `programs\<id>\` next to `Toolbox.exe`, puts it on the list and shows its
+  page. Not tried for real yet: the list has to be on GitHub's `main` first.
+- **The Toolbox's own release**: `release.ps1` and `RELEASE.md` in this repo, like every program's. The first
+  signed release is still to be made.
+- **`template\kit-program\`**, from Discord Plus: a small background program (settings, page, status, tray menu,
+  worker, the three tests) with `build.ps1`, `release.ps1` and its README on how to make a new program from it. A
+  copy outside this repo builds against the kit on GitHub and runs (checked 2026-11-22).
+- **The two classic mistakes** (section 9): `kit::app::init` stops a program started from a zip preview
+  (Explorer's `Temp1_<name>.zip`, 7-Zip's `7zO…`, WinRAR's `Rar$EX…`) or from a folder whose `data\` it cannot
+  write, with a message in the language of Windows that says what to do. Checked with a real exe in both places.
+- **Still open**: a kit program that runs without a Toolbox offers no update itself yet (section 9 says it
+  should).
 
 **M4 – Hardware Monitor in Rust.** Today its repo holds a Rust program that connects the Python monitor to the
 Toolbox (page, Start/Stop, status, settings); the monitor itself – sensors, tray icons, detail window – is still
@@ -887,6 +902,9 @@ Then Python leaves the Hardware Monitor's repo too.
   is put into the zone; one may be marked *launcher* – started, never placed.
 - **Launch parameters** for "Play" (`-windowed`).
 - **Mouse kept in the zone** while the game is active (`ClipCursor`) – a switch per entry.
+- **Which screen, per entry** (2026-11-22): with several screens, each entry names the screen its zone is placed
+  on; one default on the page ("the screen the game opens on" as today, or a fixed screen), used by every entry
+  that has no screen of its own and when its screen is missing.
 
 **Later, when a page needs it**: more step-1 blocks (4.5); the embedded window (4.5, step 3) only after it was
 verified.
@@ -1143,8 +1161,12 @@ icon and version into the exe, for Task Manager and the taskbar.
 
 ### 15.5 `programs.json` ("Get programs")
 
-In this repo's root, with `programs.json.sig` next to it (15.6). Loaded from
-`https://raw.githubusercontent.com/Windows-Toolbox/Toolbox/main/programs.json` only when the list is opened.
+In this repo's root, with `programs.json.sig` next to it (15.6; `sign file programs.json` after every change –
+a test fails while the two do not fit). Both are `-text` in `.gitattributes`: the signature is over the exact
+bytes, so git must never change their line endings. Loaded from
+`https://raw.githubusercontent.com/Windows-Toolbox/Toolbox/main/programs.json` (and `….sig`) only when the list
+is opened, checked against `kit::UPDATE_KEY`. Entries whose id is no `[a-z0-9_]+` and the Toolbox itself are
+left out.
 
 ```json
 {
@@ -1184,7 +1206,7 @@ they are built and written back here.
 | Module | Public functions |
 |---|---|
 | `lib` | `PROTOCOL` · `UPDATE_KEY` (15.6) · `Meta { id, version, dist, manifest }` · `meta!()` – the program's facts from its `Cargo.toml`, through its build script |
-| `app` | `trait Program { type Settings; const META; fn page(&self, &mut page::Builder, &Settings); fn status(&self, running: bool) -> Status; fn tray(&self) -> Tray; fn applied(&mut self, &Settings); fn action(&mut self, &str, &mut Settings) -> Option<String> – may change settings, which are then applied and saved like after a `set`; fn show(&mut self); fn shutdown(&mut self) }` · `run(program, worker)` – role, single instance, pipe, settings, delayed saving, the program's **own tray icon** while its workers run and no Toolbox carries its menu for 1.5 s (section 6: the line, its menu, Settings, Quit), `autostart::repair` and `update::clean_up` at start · `Runtime::{changed, running, wait_running, with, update, look}` · `Runtime::stop()` – the worker ends its work itself (a game whose window was closed): workers off, and the program ends once nobody looks at its page · `Runtime::sleep(time)` – a worker's pause that a `set`, an action, Start or Stop end at once · `open_in_toolbox(id)` · `init(&meta)` – first thing in every exe: application id, data folder, panic → log · `data_dir()` · `program_dir()` · `log(msg)` · `message_box(title, text, error)` · `Look { language, theme, zoom }` · `WORKERS_OFF` · `data_dir_variable(id)` for tests |
+| `app` | `trait Program { type Settings; const META; fn page(&self, &mut page::Builder, &Settings); fn status(&self, running: bool) -> Status; fn tray(&self) -> Tray; fn applied(&mut self, &Settings); fn action(&mut self, &str, &mut Settings) -> Option<String> – may change settings, which are then applied and saved like after a `set`; fn show(&mut self); fn shutdown(&mut self) }` · `run(program, worker)` – role, single instance, pipe, settings, delayed saving, the program's **own tray icon** while its workers run and no Toolbox carries its menu for 1.5 s (section 6: the line, its menu, Settings, Quit), `autostart::repair` and `update::clean_up` at start · `Runtime::{changed, running, wait_running, with, update, look}` · `Runtime::stop()` – the worker ends its work itself (a game whose window was closed): workers off, and the program ends once nobody looks at its page · `Runtime::sleep(time)` – a worker's pause that a `set`, an action, Start or Stop end at once · `open_in_toolbox(id)` · `init(&meta)` – first thing in every exe: application id, data folder, panic → log, and the two classic mistakes (`wrong_place(folder, data)`: zip preview, no write access – a message and exit) · `data_dir()` · `program_dir()` · `log(msg)` · `message_box(title, text, error)` · `Look { language, theme, zoom }` · `WORKERS_OFF` · `data_dir_variable(id)` for tests |
 | `settings` | `Settings::<T>::load(path)` – missing fields default, invalid ones fall back one by one, unknown ones kept · `.value` · `.existed` · `.save()` (written aside, then renamed) · `extra(key)` / `set_extra(key, value)` – a value next to the struct's fields |
 | `page` | `Page { blocks }` · `Block` (15.2) · `Builder::{section, text, status, switch, slider, choice, choice_marked, entry, secret, buttons, finish}` · `apply_set(&settings, key, value) -> Result<T, String>` · `lookup(&value, key)` – a key may be a path (`games.0.zone`, 15.2) · `check_keys::<Settings>(page)` for the test, `check_keys_with(&settings, page)` for a page whose keys point into a list |
 | `proto` | `Command`, `State`, `Status`, `Health`, `Tray`, `MenuEntry`, `Live`, `ToolboxHello`, `Want`, `AgentCommand`, `PROTOCOL` – the messages of 15.1 as serde types |
@@ -1197,7 +1219,7 @@ they are built and written back here.
 | `build` | `build::manifest()` for `build.rs` (15.4): `program.json`, the facts for `meta!()`, and the resource with icon, name and version – written by hand as a `.res` file, so no resource compiler has to be installed |
 | `autostart` | `read(id) -> Entry { state, target }` · `state(id) -> Off/On/DisabledByWindows` – also reads Windows' "switched off" note · `set(id, Some(exe) / None)` – `Some` switches a disabled entry back on · `repair(id, exe)` – re-points an entry whose exe no longer exists (moved folder), leaves one whose exe exists alone · `ARGUMENT` (`--autostart`: started by Windows, no window) · direct registry calls in HKCU, no PowerShell |
 | `http` | `get(url, headers, limit)` · `post_form(url, fields, limit)` · `Response::{status, body, ok(), text()}` · `encode(s)` – through WinHTTP (part of Windows: no crate, the PC's proxy and certificates); `https://` only, fixed user agent `windows-toolbox`, nothing about the user or the PC sent along |
-| `update` | `latest(repository, id) -> Option<Release { version, zip, signature }>` · `download(release, key)` – checks the signature before anything else · `install(zip, folder, id, newer_than) -> Manifest` – the manifest inside the signed zip must name `id` and a newer version; names outside the folder or in `data\` refused; unpacked aside first, files in use put aside, a failed swap undone · `clean_up(folder)` – what an update put aside · `developer_copy(home)` – own builds are not updated · `verify`, `compare_versions`, `base64_encode/decode`, `zip::{write, read}` (stored + deflate, `miniz_oxide`) · `KEY` |
+| `update` | `latest(repository, id) -> Option<Release { version, zip: Option, signature: Option }>` – a release without our two files still tells its version · `download(release, key)` – checks the signature before anything else · `install(zip, folder, id, newer_than) -> Manifest` – the manifest inside the signed zip must name `id` and a newer version; names outside the folder or in `data\` refused; unpacked aside first, files in use put aside, a failed swap undone · `clean_up(folder)` – what an update put aside · `developer_copy(home)` – own builds are not updated · `verify`, `compare_versions`, `base64_encode/decode`, `zip::{write, read}` (stored + deflate, `miniz_oxide`) · `KEY` |
 | `setup` *(still to come)* | `steps![…]` · `Step::{Winget, Download, Copy, Task}` · `pending() -> Vec<Step>` · `run(steps)` |
 
 **Crates used in M0** (looked up 2026-11-15): `eframe` / `egui` 0.37.0 (features in section 7),

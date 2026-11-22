@@ -23,7 +23,13 @@ Each program's README describes how to set it up, use it and how it works.
 
 ## Getting started
 
-The Toolbox has no release yet; it is built from source (needs [Rust](https://rustup.rs)):
+**From a release** (from v2.0.0 on): download `toolbox-<version>.zip` from the
+[releases](https://github.com/Windows-Toolbox/Toolbox/releases), unpack it into a folder of its own (not inside
+*Program Files*) and double-click `Toolbox.exe`. The exe is not signed (that costs money), so Windows SmartScreen
+may warn once at the first start: *More info → Run anyway*. Programs then come with one click under **Get
+programs …** in the gear; updates with **Update** – both checked against the release key.
+
+**From source** (needs [Rust](https://rustup.rs)):
 
 ```
 git clone https://github.com/Windows-Toolbox/Toolbox.git
@@ -53,7 +59,10 @@ right. Around each program's own page the Toolbox adds the same frame for all of
 - **Start with Windows** for programs that keep running in the background – off until switched on. If Windows has
   switched the entry off (Task Manager → Startup) or another copy of the program starts with Windows, the page says
   so; switching on makes Windows start this copy,
-- **Open folder**, **Open log**, **README**, **Remove from the list** (the folder stays untouched).
+- **Open folder**, **Open log**, **README**, **Remove from the list** (the folder stays untouched),
+- **Update** for a program whose manifest names its repository: asks GitHub, loads a newer release only, checks its
+  signature, swaps the files (`data\` stays as it is) and starts the program again if it ran. A copy you build
+  yourself shows "built here – run build.ps1" instead.
 
 A kit program's page shows its settings; a change takes effect in the running program at once. A stopped program
 can be configured as well: the Toolbox starts it without its work, only to show the page, and it ends again when
@@ -66,7 +75,9 @@ the Toolbox runs; without the Toolbox a background program shows its own icon. W
 overflow (`^`) – the gear explains how to show it and has a button for the Windows settings page.
 
 **The gear**: colours (dark, light, like Windows), language (German, English), size (also Ctrl + mouse wheel), the
-list of programs with **Add program…**, the tray icon, **Restart** and **Quit**. Language, colours and size are
+list of programs with **Get programs …** (the signed list in this repo, `programs.json`, loaded from GitHub when it
+is opened; "Get" installs a program into `programs\<id>\` next to `Toolbox.exe`), **Add program…** and **Update
+all**, the tray icon, **Update** of the Toolbox itself, **Restart** and **Quit**. Language, colours and size are
 handed to every running kit program, so their own windows look the same. Closing the window ends nothing – the
 Toolbox and the programs keep running.
 
@@ -137,8 +148,9 @@ Its manifest is not written by hand: name, version and description come from `[p
 rest from `[package.metadata.toolbox]` ([DESIGN.md 15.4](DESIGN.md#154-packagemetadatatoolbox-kit-programs)); the
 kit's build helper writes `program.json` and compiles name, icon and version into the exe. Settings are one struct,
 the page is described in a few lines, and the kit does the rest: loading and saving, the pipe to the Toolbox, the
-tray, autostart, texts in several languages. The smallest example is `demo\`; the programs above are the bigger
-ones. How it works: [DESIGN.md 5](DESIGN.md#5-toolbox-kit--the-shared-library), the formats in
+tray, autostart, texts in several languages. A new program starts as a copy of `template\kit-program\` – its
+README says which names to change; `demo\` is the kit's own test program, the programs above are the bigger ones.
+How it works: [DESIGN.md 5](DESIGN.md#5-toolbox-kit--the-shared-library), the formats in
 [DESIGN.md 15](DESIGN.md#15-formats).
 
 ## This repo
@@ -147,11 +159,15 @@ ones. How it works: [DESIGN.md 5](DESIGN.md#5-toolbox-kit--the-shared-library), 
 Toolbox/
 ├─ Cargo.toml        the workspace: one command builds everything below
 ├─ build.ps1         release build of the Toolbox → dist\
+├─ release.ps1       a signed release of the Toolbox on GitHub (RELEASE.md: its text)
+├─ programs.json     the list of "Get programs", with its signature programs.json.sig
 ├─ kit/              toolbox-kit, the library every program and the Toolbox share
 ├─ toolbox/          the Toolbox (src\: agent, window, list of programs; assets\: icon and texts)
 ├─ demo/             Kit Demo: the smallest kit program – the kit's tests talk to it
 ├─ sign/             the developer's signing tool behind every release.ps1
-├─ template/script/  the example of a script program
+├─ template/
+│  ├─ kit-program/   the template of a new kit program
+│  └─ script/        the example of a script program
 └─ dist/             (ignored) the installed Toolbox and its data\
 ```
 

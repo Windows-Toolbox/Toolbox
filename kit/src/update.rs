@@ -222,14 +222,16 @@ pub mod zip {
 
 // ---------- looking for a release ----------
 
-/// A release on GitHub that has the two files an update needs.
+/// The latest release on GitHub, and where its two files are.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Release {
     /// From the release's tag (`v1.2` → `1.2`). Only for showing and for deciding whether to download – what is
     /// installed is decided by the manifest inside the signed zip.
     pub version: String,
-    pub zip: String,
-    pub signature: String,
+    /// `<id>-<version>.zip` and its `.sig` – `None` if the release lacks it (an old release from before signed
+    /// zips: it is still worth knowing its version, which may well be older than the installed one).
+    pub zip: Option<String>,
+    pub signature: Option<String>,
 }
 
 fn is_repository(repository: &str) -> bool {
@@ -238,14 +240,13 @@ fn is_repository(repository: &str) -> bool {
     repository.split_once('/').is_some_and(|(owner, name)| part(owner) && part(name))
 }
 
-/// What GitHub answers for "the latest release" → the release, if it has `<id>-<version>.zip` and its `.sig`.
+/// What GitHub answers for "the latest release" → its version and, if it has them, `<id>-<version>.zip` and
+/// its `.sig`.
 pub fn parse_release(json: &str, id: &str) -> Result<Release, String> {
     let v: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("GitHub's answer cannot be read: {e}"))?;
     let version = v["tag_name"].as_str().ok_or("GitHub's answer names no release")?.trim_start_matches('v').to_string();
-    let asset = |name: String| {
-        v["assets"].as_array().into_iter().flatten().find(|a| a["name"] == name.as_str()).and_then(|a| a["browser_download_url"].as_str()).map(str::to_string).ok_or(format!("the release {version} has no file {name}"))
-    };
-    Ok(Release { zip: asset(format!("{id}-{version}.zip"))?, signature: asset(format!("{id}-{version}.zip.sig"))?, version })
+    let asset = |name: String| v["assets"].as_array().into_iter().flatten().find(|a| a["name"] == name.as_str()).and_then(|a| a["browser_download_url"].as_str()).map(str::to_string);
+    Ok(Release { zip: asset(format!("{id}-{version}.zip")), signature: asset(format!("{id}-{version}.zip.sig")), version })
 }
 
 /// The latest release of `repository` (`owner/name`) – `None` if there is none yet. Asks GitHub; called only
@@ -270,8 +271,11 @@ pub fn download(release: &Release, key: &str) -> Result<Vec<u8>, String> {
         Ok(answer) => Err(format!("{url}: the server answered {}", answer.status)),
         Err(e) => Err(format!("{url}: {e}")),
     };
-    let signature = fetch(&release.signature, MAX_SMALL)?;
-    let zip = fetch(&release.zip, MAX_ZIP)?;
+    let (Some(zip_url), Some(signature_url)) = (&release.zip, &release.signature) else {
+        return Err(format!("the release {} has no signed zip for this program", release.version));
+    };
+    let signature = fetch(signature_url, MAX_SMALL)?;
+    let zip = fetch(zip_url, MAX_ZIP)?;
     verify(&zip, &String::from_utf8_lossy(&signature), key)?;
     Ok(zip)
 }
@@ -562,8 +566,12 @@ mod tests {
             {"name":"demo-1.2.zip","browser_download_url":"https://github.com/o/r/releases/download/v1.2/demo-1.2.zip"},
             {"name":"demo-1.2.zip.sig","browser_download_url":"https://github.com/o/r/releases/download/v1.2/demo-1.2.zip.sig"}]}"#;
         let r = parse_release(json, "demo").unwrap();
-        assert_eq!((r.version.as_str(), r.zip.ends_with("demo-1.2.zip"), r.signature.ends_with(".sig")), ("1.2", true, true));
-        assert!(parse_release(json, "other").unwrap_err().contains("other-1.2.zip"));
+        assert_eq!((r.version.as_str(), r.zip.unwrap().ends_with("demo-1.2.zip"), r.signature.unwrap().ends_with(".sig")), ("1.2", true, true));
+        // A release without our files (another program's, or one from before signed zips): its version still
+        // counts, the download says why it cannot be done.
+        let other = parse_release(json, "other").unwrap();
+        assert_eq!((other.version.as_str(), other.zip.is_none()), ("1.2", true));
+        assert!(download(&other, KEY).unwrap_err().contains("no signed zip"));
         assert!(parse_release("{}", "demo").is_err());
         assert!(is_repository("Windows-Toolbox/Discord-Plus"));
         for bad in ["nothing", "a/b/c", "a/", "../x", "a/b?x", "a b/c"] {

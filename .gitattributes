@@ -1,2 +1,5 @@
 # PowerShell-Skripte brauchen CRLF – auch wenn das Repo mit core.autocrlf=false geklont wird
 *.ps1 text eol=crlf
+# Signed files: the signature is over their exact bytes, so git must never change their line endings.
+programs.json -text
+programs.json.sig -text

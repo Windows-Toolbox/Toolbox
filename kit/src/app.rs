@@ -2,7 +2,7 @@
 //! single instance through the pipe, `hello`, pushing states to every connection that wants them, applying `set`,
 //! saving with a short delay, ending when the workers are off and nobody looks at the page any more.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
@@ -64,6 +64,48 @@ pub fn init(meta: &Meta) {
         // closes without `bye`, and the Toolbox shows "crashed" with a link to this log (section 8).
         std::process::exit(101);
     }));
+    // Tests give the program a data folder of their own; that one is always fine.
+    if std::env::var_os(data_dir_variable(meta.id)).is_none() {
+        if let Some(id) = wrong_place(&program_dir(), &data_dir()) {
+            let manifest = crate::manifest::Manifest::parse(meta.manifest).ok();
+            crate::i18n::set_language(crate::i18n::system_language());
+            let lang = crate::i18n::language();
+            let name = manifest.as_ref().map(|m| m.name.get(&lang).to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| meta.id.to_string());
+            let exe = manifest.and_then(|m| m.exe).unwrap_or_default();
+            let text = crate::i18n::format(id, &[("name", name.clone()), ("exe", exe), ("folder", program_dir().display().to_string())]);
+            message_box(&name, &text, true);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// The two classic mistakes (DESIGN.md 9), caught before the program runs half-working and loses its settings:
+/// started from inside a zip – Windows then runs it from a temporary folder – or from a folder it cannot write to
+/// (Program Files). The id of the text that says what to do instead; `None` if all is well.
+pub fn wrong_place(folder: &Path, data: &Path) -> Option<&'static str> {
+    if in_zip_preview(folder) {
+        return Some("kit.start.in_zip");
+    }
+    if !writable(data) {
+        return Some("kit.start.read_only");
+    }
+    None
+}
+
+/// The temporary folders zip programs run a file from: Explorer `Temp1_<name>.zip`, 7-Zip `7zO…`, WinRAR `Rar$EX…`.
+fn in_zip_preview(folder: &Path) -> bool {
+    folder.components().any(|c| {
+        let part = c.as_os_str().to_string_lossy().to_lowercase();
+        (part.starts_with("temp") && part.ends_with(".zip")) || part.starts_with("7zo") || part.starts_with("rar$ex")
+    })
+}
+
+/// Whether the program can keep its settings: `data\` is there or can be made, and a file can be written into it.
+fn writable(data: &Path) -> bool {
+    let probe = data.join(".write-test");
+    let ok = std::fs::create_dir_all(data).is_ok() && std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
 }
 
 /// Internal, for tests – they must never touch the settings that are really in use: the environment variable
@@ -634,4 +676,25 @@ fn greet<P: Program>(g: &mut Inner<P>, conn: &Arc<Conn>, hello: ToolboxHello) {
     }
     // Everybody gets what changed (a new language changes every text); this connection gets everything it wants.
     push(g, false, Some(conn));
+}
+
+#[cfg(test)]
+mod place_tests {
+    use super::*;
+
+    #[test]
+    fn a_zip_preview_and_a_folder_without_write_access_are_caught() {
+        let ok = std::env::temp_dir().join(format!("kit-place-{}", std::process::id()));
+        assert_eq!(wrong_place(&ok, &ok.join("data")), None);
+        assert!(ok.join("data").is_dir() && !ok.join("data").join(".write-test").exists(), "the probe leaves nothing behind");
+        for zip in [r"C:\Users\a\AppData\Local\Temp\Temp1_Toolbox-2.0.0.zip", r"C:\Users\a\AppData\Local\Temp\7zO8A1B2C3D", r"C:\Users\a\AppData\Local\Temp\Rar$EXa1234.5678\Toolbox"] {
+            assert_eq!(wrong_place(Path::new(zip), &ok.join("data")), Some("kit.start.in_zip"), "{zip}");
+        }
+        // Not a zip: a folder of one's own that only happens to have "temp" or "zip" in its name.
+        assert_eq!(wrong_place(Path::new(r"E:\Games\Temperature\Zip Tools"), &ok.join("data")), None);
+        // A data folder that cannot be made (a file is in the way) – as in Program Files without admin rights.
+        std::fs::write(ok.join("blocked"), b"").unwrap();
+        assert_eq!(wrong_place(&ok, &ok.join("blocked").join("data")), Some("kit.start.read_only"));
+        std::fs::remove_dir_all(&ok).ok();
+    }
 }
