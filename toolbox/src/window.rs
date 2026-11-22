@@ -168,6 +168,18 @@ fn category(entry: &Entry) -> &str {
     if key.is_empty() { NO_CATEGORY } else { key }
 }
 
+/// The tabs: "General" always first, the other categories in the order their first program stands on the list.
+fn tabs(library: &Library) -> Vec<&str> {
+    let mut tabs: Vec<&str> = vec![];
+    for entry in &library.programs {
+        if !tabs.contains(&category(entry)) {
+            tabs.push(category(entry));
+        }
+    }
+    tabs.sort_by_key(|key| *key != NO_CATEGORY);
+    tabs
+}
+
 /// The tab's label: our own text for the categories we know, otherwise what the programs say.
 fn category_label(key: &str, library: &Library, language: &str) -> String {
     let id = format!("category.{key}");
@@ -320,7 +332,9 @@ impl App {
         // The selection must be a program of the shown tab; the tab must exist.
         let in_tab = |e: &&Entry| category(e) == self.tab;
         if !self.selected.as_ref().is_some_and(|id| library.programs.iter().filter(in_tab).any(|e| e.id() == id)) {
-            match library.programs.iter().find(in_tab).or(library.programs.first()) {
+            let first_tab = tabs(&library).first().map(|t| t.to_string());
+            let in_first_tab = |e: &&Entry| Some(category(e)) == first_tab.as_deref();
+            match library.programs.iter().find(in_tab).or_else(|| library.programs.iter().find(in_first_tab)) {
                 Some(entry) => {
                     self.selected = Some(entry.id().to_string());
                     self.tab = category(entry).to_string();
@@ -967,13 +981,7 @@ impl App {
         self.zoom(&ctx);
         let language = i18n::language();
 
-        // The categories in the order their first program stands on the list.
-        let mut tabs: Vec<&str> = vec![];
-        for entry in &library.programs {
-            if !tabs.contains(&category(entry)) {
-                tabs.push(category(entry));
-            }
-        }
+        let tabs = tabs(&library);
 
         // Like the editor's module bar: the categories on the left, the Toolbox's own settings on the right.
         egui::Panel::top("tabs").show(ui, |ui| {
@@ -1200,6 +1208,10 @@ mod tests {
             lock(&shared).library = Some(library(&programs, theme));
             draw(&mut app);
             assert_eq!((app.selected.as_deref(), app.tab.as_str()), (Some("monitor"), "General"));
+            // "General" stays the first tab even when a game stands first on the list.
+            let mut games_first = programs.clone();
+            games_first.rotate_left(2);
+            assert_eq!(tabs(&library(&games_first, theme)), ["General", "Games"]);
             // A kit program whose page has arrived – with a block this Toolbox does not know.
             {
                 let mut s = lock(&shared);

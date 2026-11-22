@@ -616,7 +616,7 @@ the Toolbox's settings (`restart_after_crash`, a list of ids), next to "Start wi
 
 **Window** – opened by icon click, double-click on `Toolbox.exe`, or `show`:
 
-- library: tabs per category, programs on the left; on the right the program's page (4.4) inside the Toolbox's
+- library: tabs per category ("General" first, the others in the order of the list), programs on the left; on the right the program's page (4.4) inside the Toolbox's
   frame (status, start/stop, autostart, folder)
 - only the visible page is connected to its program, and only while the window is visible
 - gear: appearance and language (sent to every running kit program with `hello`), programs (**Add program…**,
