@@ -844,7 +844,7 @@ Each step ends in a state that can be used daily and committed. The order follow
 numbers continue the milestones the work so far was done in (M0 prototype, M1 kit + Toolbox, M2 the script page
 and Last Bastion, M3 Discord Plus, M5 Cube Game, plus Screen Zones and Steam Shortcuts in between).
 
-**M3, the rest – releases and updates** (built 2026-11-22, not released yet):
+**M3, the rest – releases and updates** (built and released 2026-11-22):
 
 - **Update** on a program's page and **Update all** in the gear (section 9) – for every program whose manifest
   names `repository` and `update_key`, and for the Toolbox itself (gear → Toolbox). The agent does it on a thread
@@ -860,9 +860,12 @@ and Last Bastion, M3 Discord Plus, M5 Cube Game, plus Screen Zones and Steam Sho
 - **Get programs**: `programs.json` in this repo's root with `programs.json.sig` (15.5); in the gear and on the
   welcome page ("Get programs …"). A click on "Get" loads the latest release, checks it against the key the
   signed list names, unpacks it into `programs\<id>\` next to `Toolbox.exe`, puts it on the list and shows its
-  page. Not tried for real yet: the list has to be on GitHub's `main` first.
-- **The Toolbox's own release**: `release.ps1` and `RELEASE.md` in this repo, like every program's. The first
-  signed release is still to be made.
+  page. Checked for real on 2026-11-22 in a sandbox: the list from GitHub, then all five programs got.
+- **The releases** (2026-11-22, all signed with the key of 15.6): Toolbox v2.0.0 (`release.ps1` and `RELEASE.md`
+  in this repo, like every program's), Cube Game v2.0.0, Discord Plus v2.0.0, Hardware Monitor v2.0.0 (with
+  `python\`, without `runtime\` and `lhm\` – "Set up" makes those), Steam Shortcuts v1.0.0; Screen Zones v1.0.0 was
+  released before. Not tried yet: a fresh PC from the Toolbox zip alone, and Hardware Monitor's "Set up" from a
+  release.
 - **`template\kit-program\`**, from Discord Plus: a small background program (settings, page, status, tray menu,
   worker, the three tests) with `build.ps1`, `release.ps1` and its README on how to make a new program from it. A
   copy outside this repo builds against the kit on GitHub and runs (checked 2026-11-22).
