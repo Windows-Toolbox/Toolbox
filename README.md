@@ -59,6 +59,8 @@ right. Around each program's own page the Toolbox adds the same frame for all of
 - **Start with Windows** for programs that keep running in the background – off until switched on. If Windows has
   switched the entry off (Task Manager → Startup) or another copy of the program starts with Windows, the page says
   so; switching on makes Windows start this copy,
+- **Restart after a crash** for the same programs – off until switched on; at most three times in ten minutes, then
+  the Toolbox gives up and says so,
 - **Open folder**, **Open log**, **README**, **Remove from the list** (the folder stays untouched),
 - **Update** for a program whose manifest names its repository: asks GitHub, loads a newer release only, checks its
   signature, swaps the files (`data\` stays as it is) and starts the program again if it ran. A copy you build
@@ -77,16 +79,24 @@ overflow (`^`) – the gear explains how to show it and has a button for the Win
 **The gear**: colours (dark, light, like Windows), language (German, English), size (also Ctrl + mouse wheel), the
 list of programs with **Get programs …** (the signed list in this repo, `programs.json`, loaded from GitHub when it
 is opened; "Get" installs a program into `programs\<id>\` next to `Toolbox.exe`), **Add program…** and **Update
-all**, the tray icon, **Update** of the Toolbox itself, **Restart** and **Quit**. Language, colours and size are
-handed to every running kit program, so their own windows look the same. Closing the window ends nothing – the
-Toolbox and the programs keep running.
+all**, the tray icon, and for the Toolbox itself **Start with Windows** (only the tray icon), **Show in the Start
+menu**, **Update**, **Restart** and **Quit**. Language, colours and size are handed to every running kit program,
+so their own windows look the same. Closing the window ends nothing – the Toolbox and the programs keep running.
+
+- **Back up settings**: *Export…* writes one zip with the settings of the Toolbox and of every program on the list;
+  *Import…* shows first what it will take over, then puts it back (a running program restarts for it).
+- **Clean up and uninstall**: everything the Toolbox and its programs put into Windows is named `WindowsToolbox`.
+  *Clean up…* lists what belongs to no program any more (a program whose folder was deleted) and removes it after a
+  click; *Uninstall all…* lists everything, removes it, ends every program and the Toolbox, then says
+  which folders you can now simply delete and opens the Toolbox's. What a program set up with admin rights itself (the Hardware Monitor's task, PawnIO) stays.
 
 **Two copies of one program**: a program is known by its `id`, and only one copy of it can be on the list. Adding a
 second one (your own build next to a release) asks which of the two to keep.
 
 **Your data**: `dist\data\settings.json` (look, language, the list of program folders) and `dist\data\log.txt`. The
 folders are remembered relative to the Toolbox where possible, so moving everything together keeps the list valid.
-Every program keeps its own settings in its own `dist\data\`.
+Every program keeps its own settings in its own `dist\data\`; Gear → Back up settings takes all of them along in
+one zip.
 
 ## Three kinds of programs
 

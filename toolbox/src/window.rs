@@ -19,8 +19,10 @@ use kit::proto::{Command, PROTOCOL, State, ToolboxHello, Want};
 use kit::ui::{self, PageView, Toast};
 use kit::{app, i18n, process, t};
 
+use crate::backup::Plan;
 use crate::catalog::Offer;
 use crate::library::{self, Added, Conflict, Entry, Library, Problem, Target, Updatable, Updating};
+use crate::system::Trace;
 use crate::talk::{Ask, Tell};
 
 const TITLE: &str = "Windows Toolbox";
@@ -53,6 +55,12 @@ struct Shared {
     added: Option<Added>,
     /// The list of "Get programs" arrived.
     catalog: Option<Result<Vec<Offer>, String>>,
+    /// What an import would do.
+    plan: Option<Result<Plan, String>>,
+    /// What Clean up / Uninstall all found.
+    traces: Option<(bool, Vec<Trace>)>,
+    /// Settings were imported: language, theme and zoom come from the library again.
+    imported: bool,
     /// The agent is gone or said `bye`.
     closed: bool,
     page: PageLink,
@@ -148,6 +156,10 @@ struct App {
     catalog_open: bool,
     /// … with this list – `None` while it loads.
     catalog: Option<Result<Vec<Offer>, String>>,
+    /// An import waiting to be confirmed (or why the chosen file cannot be imported).
+    plan: Option<Result<Plan, String>>,
+    /// Clean up (`false`) or Uninstall all (`true`) waiting to be confirmed, with what it would remove.
+    traces: Option<(bool, Vec<Trace>)>,
     first_frame: bool,
 }
 
@@ -269,6 +281,15 @@ impl App {
         let added = s.added.take();
         if let Some(catalog) = s.catalog.take() {
             self.catalog = Some(catalog);
+        }
+        if let Some(plan) = s.plan.take() {
+            self.plan = Some(plan);
+        }
+        if let Some(traces) = s.traces.take() {
+            self.traces = Some(traces);
+        }
+        if std::mem::take(&mut s.imported) {
+            self.look = None;
         }
         let library = s.library.clone()?;
         // The page together with the program it belongs to: for one frame after another program was chosen, the
@@ -533,6 +554,13 @@ impl App {
                 }
                 _ => {}
             }
+            let mut again = entry.restart_after_crash(&library.settings);
+            if ui.checkbox(&mut again, t!("page.restart_crash")).on_hover_text(t!("page.restart_crash.hint")).changed() {
+                self.ask(Ask::RestartAfterCrash { id: entry.id().into(), on: again });
+            }
+            if entry.run.gave_up {
+                ui.label(RichText::new(format!("⚠ {}", t!("status.gave_up"))).color(ui::warn(ui)));
+            }
         }
         ui.add_space(6.0);
         ui.separator();
@@ -698,6 +726,8 @@ impl App {
         ui::section(ui, &t!("gear.toolbox"), "toolbox", |ui| {
             ui::hint(ui, t!("gear.version", version = crate::META.version));
             ui.add_space(2.0);
+            self.own_switches(ui, library);
+            ui.add_space(2.0);
             ui.horizontal_wrapped(|ui| {
                 let own = kit::manifest::Manifest::parse(crate::META.manifest).ok().map(|m| Target::of(&m, &library.folder));
                 if let Some(own) = own {
@@ -721,7 +751,180 @@ impl App {
                 }
             });
         });
+        ui::section(ui, &t!("gear.backup"), "backup", |ui| {
+            ui::hint(ui, t!("gear.backup.text"));
+            ui.add_space(2.0);
+            let free = !self.picking.load(Ordering::SeqCst);
+            ui.horizontal_wrapped(|ui| {
+                if ui.add_enabled(free, egui::Button::new(t!("gear.export"))).clicked() {
+                    self.pick_file(&ctx, library, true);
+                }
+                if ui.add_enabled(free, egui::Button::new(t!("gear.import"))).clicked() {
+                    self.pick_file(&ctx, library, false);
+                }
+            });
+            self.import_plan(ui);
+        });
+
+        ui::section(ui, &t!("gear.remove"), "remove", |ui| {
+            ui::hint(ui, t!("gear.remove.text"));
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                if ui.button(t!("gear.clean_up")).clicked() {
+                    self.traces = None;
+                    self.ask(Ask::Traces { everything: false });
+                }
+                if ui.button(t!("gear.uninstall")).clicked() {
+                    self.traces = None;
+                    self.ask(Ask::Traces { everything: true });
+                }
+            });
+            self.trace_list(ui, library);
+        });
         ui.add_space(10.0);
+    }
+
+    /// The Toolbox's own "Start with Windows" and "Show in the Start menu" – each also says when Windows switched it
+    /// off or when it belongs to another copy.
+    fn own_switches(&mut self, ui: &mut egui::Ui, library: &Library) {
+        let own = &library.own;
+        let mut on = own.autostart_on();
+        if ui.checkbox(&mut on, t!("gear.autostart")).on_hover_text(t!("gear.autostart.hint")).changed() {
+            self.ask(Ask::OwnAutostart { on });
+        }
+        match (own.autostart.state, own.autostart.target.as_ref()) {
+            (Autostart::DisabledByWindows, Some(_)) if own.autostart_is_mine() => {
+                ui.label(RichText::new(format!("⚠ {}", t!("page.autostart.disabled"))).color(ui::warn(ui)));
+            }
+            (Autostart::On | Autostart::DisabledByWindows, Some(other)) if !own.autostart_is_mine() => {
+                ui::hint(ui, t!("page.autostart.elsewhere", file = other.display()));
+            }
+            _ => {}
+        }
+        let mut shown = own.shortcut_on();
+        if ui.checkbox(&mut shown, t!("gear.start_menu")).changed() {
+            self.ask(Ask::StartMenu { on: shown });
+        }
+        if let Some(other) = own.shortcut.as_ref().filter(|_| !own.shortcut_is_mine()) {
+            ui::hint(ui, t!("gear.start_menu.elsewhere", file = other.display()));
+        }
+    }
+
+    /// Export (`save`) or import: the file dialog, on a thread of its own so the window keeps drawing.
+    fn pick_file(&mut self, ctx: &egui::Context, library: &Library, save: bool) {
+        if self.picking.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        self.plan = None;
+        let start = library.folder.ancestors().nth(2).filter(|p| p.is_dir()).map(|p| p.to_path_buf());
+        let title = if save { t!("gear.export.title") } else { t!("gear.import.title") };
+        let (agent, picking, ctx, name) = (self.agent.clone(), self.picking.clone(), ctx.clone(), t!("gear.export.file"));
+        std::thread::spawn(move || {
+            let mut dialog = rfd::FileDialog::new().set_title(title).add_filter("Zip", &["zip"]);
+            if let Some(start) = start {
+                dialog = dialog.set_directory(start);
+            }
+            let ask = if save { dialog.set_file_name(name).save_file().map(|file| Ask::Export { file }) } else { dialog.pick_file().map(|file| Ask::ImportCheck { file }) };
+            if let Some(ask) = ask {
+                let _ = agent.send(&ask);
+            }
+            picking.store(false, Ordering::SeqCst);
+            ctx.request_repaint();
+        });
+    }
+
+    /// An import waiting to be confirmed: what it takes over, what it leaves out.
+    fn import_plan(&mut self, ui: &mut egui::Ui) {
+        let language = i18n::language();
+        let names = |list: &[kit::manifest::Text]| list.iter().map(|n| n.get(&language).to_string()).collect::<Vec<_>>().join(", ");
+        let mut answer = None;
+        match &self.plan {
+            None => return,
+            Some(Err(why)) => {
+                ui.add_space(4.0);
+                ui.label(RichText::new(format!("⚠ {}", t!("toast.import_failed", why = why))).color(ui::warn(ui)));
+                if ui.button(t!("gear.cancel")).clicked() {
+                    answer = Some(None);
+                }
+            }
+            Some(Ok(plan)) => {
+                ui.add_space(4.0);
+                ui.label(t!("gear.import.plan", file = plan.file.display()));
+                if plan.toolbox {
+                    ui.label(format!("• {}", t!("gear.import.toolbox")));
+                }
+                if !plan.programs.is_empty() {
+                    ui.label(format!("• {}", t!("gear.import.programs", names = names(&plan.programs))));
+                }
+                if !plan.skipped.is_empty() {
+                    muted_label(ui, t!("gear.import.skipped", names = names(&plan.skipped)));
+                }
+                let something = plan.toolbox || !plan.programs.is_empty();
+                ui::hint(ui, if something { t!("gear.import.replace") } else { t!("gear.import.nothing") });
+                ui.horizontal(|ui| {
+                    if something && ui.button(t!("gear.import.do")).clicked() {
+                        answer = Some(Some(plan.file.clone()));
+                    }
+                    if ui.button(t!("gear.cancel")).clicked() {
+                        answer = Some(None);
+                    }
+                });
+            }
+        }
+        if let Some(file) = answer {
+            self.plan = None;
+            if let Some(file) = file {
+                self.ask(Ask::Import { file });
+            }
+        }
+    }
+
+    /// What Clean up or Uninstall all found – listed before anything is removed (DESIGN.md 9).
+    fn trace_list(&mut self, ui: &mut egui::Ui, library: &Library) {
+        let Some((everything, traces)) = &self.traces else { return };
+        let language = i18n::language();
+        let target = |t: &Trace| match t.target() {
+            Some(p) if p.exists() => p.display().to_string(),
+            Some(p) => format!("{} {}", p.display(), t!("trace.gone")),
+            None => t!("trace.gone"),
+        };
+        ui.add_space(4.0);
+        if !everything && traces.is_empty() {
+            ui.label(t!("gear.clean_up.none"));
+        } else {
+            ui.label(if *everything { t!("gear.uninstall.text") } else { t!("gear.clean_up.found") });
+            for trace in traces {
+                let line = match trace {
+                    Trace::Autostart { id, .. } => {
+                        let name = library.programs.iter().find(|e| e.id() == id).map(|e| e.manifest.name.get(&language).to_string());
+                        let name = name.unwrap_or_else(|| if id == library::OWN_ID { "Windows Toolbox".into() } else { id.clone() });
+                        t!("trace.autostart", name = name, target = target(trace))
+                    }
+                    Trace::Shortcut { path, .. } => t!("trace.shortcut", path = path.display(), target = target(trace)),
+                };
+                ui.label(format!("• {line}"));
+            }
+            if *everything {
+                ui::hint(ui, t!("gear.uninstall.kept"));
+            }
+        }
+        let (mut close, mut go) = (false, false);
+        ui.horizontal(|ui| {
+            let label = if *everything { t!("gear.uninstall.do") } else { t!("gear.clean_up.do") };
+            if (*everything || !traces.is_empty()) && ui.button(label).clicked() {
+                go = true;
+            }
+            if ui.button(t!("gear.cancel")).clicked() {
+                close = true;
+            }
+        });
+        if go {
+            let ask = if *everything { Ask::Uninstall } else { Ask::CleanUp { traces: traces.clone() } };
+            self.ask(ask);
+        }
+        if go || close {
+            self.traces = None;
+        }
     }
 
     /// Nothing on the list yet.
@@ -892,6 +1095,9 @@ pub fn run(wanted: Option<String>) {
                             Tell::Toast { text, error } => s.toasts.push((text, error)),
                             Tell::Added(added) => s.added = Some(added),
                             Tell::Catalog { offers } => s.catalog = Some(offers),
+                            Tell::Plan(plan) => s.plan = Some(plan),
+                            Tell::Traces { everything, traces } => s.traces = Some((everything, traces)),
+                            Tell::Imported => s.imported = true,
                             Tell::Show { id } => s.show = Some(id),
                             Tell::Bye => break,
                             Tell::Unknown => continue,
@@ -923,6 +1129,8 @@ pub fn run(wanted: Option<String>) {
                 picking: Arc::new(AtomicBool::new(false)),
                 catalog_open: false,
                 catalog: None,
+                plan: None,
+                traces: None,
                 first_frame: true,
             };
             Ok(Box::new(app))
@@ -974,11 +1182,11 @@ mod tests {
             Missing { stored: "..\\Broken".into(), folder: "C:\\Broken".into(), problem: Problem::Broken("expected value at line 1".into()) },
             Missing { stored: "..\\Twice".into(), folder: "C:\\Twice".into(), problem: Problem::SameId("Monitor".into()) },
         ];
-        let library = |programs: &[Entry], theme: &str| Arc::new(Library { settings: Settings { language: "en".into(), theme: theme.into(), zoom: 1.0, programs: vec![] }, programs: programs.to_vec(), missing: missing.clone(), folder: "C:\\Nowhere\\Toolbox\\dist".into(), data: "C:\\Nowhere\\Toolbox\\dist\\data".into(), updating: Default::default() });
+        let library = |programs: &[Entry], theme: &str| Arc::new(Library { settings: Settings { language: "en".into(), theme: theme.into(), zoom: 1.0, ..Default::default() }, programs: programs.to_vec(), missing: missing.clone(), folder: "C:\\Nowhere\\Toolbox\\dist".into(), data: "C:\\Nowhere\\Toolbox\\dist\\data".into(), updating: Default::default(), own: Default::default() });
 
         for theme in ["dark", "light"] {
             let shared = Arc::new(Mutex::new(Shared::default()));
-            let mut app = App { shared: shared.clone(), agent: agent.clone(), look: None, zoom_changed: None, zoom_exact: 1.0, selected: None, wanted: None, tab: String::new(), gear: false, view: PageView::default(), toast: Toast::default(), conflicts: vec![], picking: Arc::new(AtomicBool::new(false)), catalog_open: false, catalog: None, first_frame: true };
+            let mut app = App { shared: shared.clone(), agent: agent.clone(), look: None, zoom_changed: None, zoom_exact: 1.0, selected: None, wanted: None, tab: String::new(), gear: false, view: PageView::default(), toast: Toast::default(), conflicts: vec![], picking: Arc::new(AtomicBool::new(false)), catalog_open: false, catalog: None, plan: None, traces: None, first_frame: true };
             let ctx = egui::Context::default();
             let draw = |app: &mut App| ctx.run_ui(Default::default(), |ui| app.frame(ui)).textures_delta.clear();
 
@@ -1033,6 +1241,31 @@ mod tests {
                 assert!(matches!(&app.catalog, Some(Ok(list)) if list.len() == 3));
                 app.gear = false;
                 app.catalog_open = false;
+            }
+            // The gear with everything M6 shows: the Toolbox's own switches (on, switched off by Windows, another
+            // copy's), "Restart after a crash" that gave up, an import to confirm, Clean up and Uninstall all.
+            {
+                let mut own = library(&programs, theme);
+                let u = Arc::make_mut(&mut own);
+                u.own = crate::system::Own { exe: "C:\\Nowhere\\Toolbox.exe".into(), autostart: kit::autostart::Entry { state: Autostart::DisabledByWindows, target: Some("C:\\Nowhere\\Toolbox.exe".into()) }, shortcut: Some(std::env::current_exe().unwrap()) };
+                u.settings.restart_after_crash = vec!["monitor".into()];
+                u.programs[0].run.gave_up = true;
+                lock(&shared).library = Some(own);
+                lock(&shared).show = Some(Some("monitor".into()));
+                draw(&mut app);
+                app.gear = true;
+                let plan = Plan { file: "C:\\Backup.zip".into(), toolbox: true, programs: vec!["Monitor".into()], skipped: vec!["Gone".into()] };
+                lock(&shared).plan = Some(Ok(plan));
+                lock(&shared).traces = Some((false, vec![Trace::Autostart { id: "gone".into(), target: Some("C:\\Gone\\G.exe".into()) }, Trace::Shortcut { path: "C:\\S.lnk".into(), target: None }]));
+                draw(&mut app);
+                assert!(app.plan.is_some() && app.traces.is_some());
+                lock(&shared).plan = Some(Err("this zip holds no exported settings".into()));
+                lock(&shared).traces = Some((true, vec![]));
+                draw(&mut app);
+                lock(&shared).imported = true;
+                draw(&mut app);
+                assert_eq!(app.look.as_ref().map(|l| l.theme.as_str()), Some(theme), "after an import the look comes from the library");
+                app.gear = false;
             }
             // A tab that lost its last program: the window moves on by itself.
             lock(&shared).library = Some(library(&programs[..4], theme));

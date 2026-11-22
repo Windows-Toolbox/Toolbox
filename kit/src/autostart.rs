@@ -131,6 +131,27 @@ pub fn state(id: &str) -> State {
     read(id).state
 }
 
+/// The ids of every program that has an entry – ours are the values named `WindowsToolbox.<id>` (Gear → Clean up,
+/// Uninstall all; DESIGN.md 9).
+pub fn all() -> Vec<String> {
+    let Ok(key) = open(&key_path(RUN), false) else { return vec![] };
+    let mut ids = vec![];
+    for index in 0.. {
+        let mut name = [0u16; 512];
+        let mut len = name.len() as u32;
+        let code = unsafe { RegEnumValueW(key.0, index, name.as_mut_ptr(), &mut len, null(), null_mut(), null_mut(), null_mut()) };
+        if code != ERROR_SUCCESS {
+            break;
+        }
+        let name = String::from_utf16_lossy(&name[..len as usize]);
+        if let Some(id) = name.strip_prefix("WindowsToolbox.") {
+            ids.push(id.to_string());
+        }
+    }
+    ids.sort();
+    ids
+}
+
 /// `Some(exe)`: start this exe with Windows – also switches an entry back on that Windows had switched off.
 /// `None`: do not start it; the entry and Windows' note are removed.
 pub fn set(id: &str, exe: Option<&Path>) -> io::Result<()> {
@@ -204,9 +225,14 @@ mod tests {
         set("demo", Some(&exe)).unwrap();
         assert_eq!(state("demo"), State::On);
 
+        set("other", Some(&exe)).unwrap();
+        assert_eq!(all(), ["demo", "other"], "every entry of ours is found");
+        set("other", None).unwrap();
+
         set("demo", None).unwrap();
         assert_eq!(state("demo"), State::Off);
         set("demo", None).unwrap();
+        assert!(all().is_empty());
         forget();
     }
 

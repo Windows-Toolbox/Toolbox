@@ -9,8 +9,10 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::backup::Plan;
 use crate::catalog::Offer;
 use crate::library::{Added, Library};
+use crate::system::Trace;
 
 /// To the agent.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -58,6 +60,24 @@ pub enum Ask {
     Catalog,
     /// "Get" on that list: install this program into `programs\<id>\` and put it on the list.
     Get { id: String },
+    /// "Restart after a crash" switched on or off for a program.
+    RestartAfterCrash { id: String, on: bool },
+    /// The Toolbox's own "Start with Windows".
+    OwnAutostart { on: bool },
+    /// "Show in the Start menu".
+    StartMenu { on: bool },
+    /// "Export all settings" into this zip.
+    Export { file: PathBuf },
+    /// "Import settings": what would this zip do? (The answer is `Tell::Plan`.)
+    ImportCheck { file: PathBuf },
+    /// … and now do it.
+    Import { file: PathBuf },
+    /// "Clean up" (`everything: false`) or "Uninstall all": what is there? (The answer is `Tell::Traces`.)
+    Traces { everything: bool },
+    /// Remove these traces – what Clean up listed.
+    CleanUp { traces: Vec<Trace> },
+    /// Uninstall all: remove every trace, end every program and the Toolbox, open the Toolbox's folder.
+    Uninstall,
     #[serde(other)]
     Unknown,
 }
@@ -82,6 +102,12 @@ pub enum Tell {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
+    /// What an import would do – or why the file cannot be imported.
+    Plan(Result<Plan, String>),
+    /// The settings were imported: the window takes language, theme and zoom from the next library again.
+    Imported,
+    /// What Clean up or Uninstall all found.
+    Traces { everything: bool, traces: Vec<Trace> },
     /// The agent ends; so does the window.
     Bye,
     #[serde(other)]
@@ -107,7 +133,7 @@ mod tests {
 
     #[test]
     fn the_library_travels_as_one_line() {
-        let library = Library { settings: Default::default(), programs: vec![], missing: vec![], folder: "C:\\T".into(), data: "C:\\T\\data".into(), updating: Default::default() };
+        let library = Library { settings: Default::default(), programs: vec![], missing: vec![], folder: "C:\\T".into(), data: "C:\\T\\data".into(), updating: Default::default(), own: Default::default() };
         let line = serde_json::to_string(&Tell::Library(library.clone())).unwrap();
         assert!(!line.contains('\n'));
         assert_eq!(serde_json::from_str::<Tell>(&line).unwrap(), Tell::Library(library));

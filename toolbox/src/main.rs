@@ -4,8 +4,10 @@
 #![windows_subsystem = "windows"]
 
 mod agent;
+mod backup;
 mod catalog;
 mod library;
+mod system;
 mod talk;
 mod window;
 
@@ -33,7 +35,8 @@ fn main() {
         if let Some(pid) = after {
             kit::process::wait_exit(pid, AFTER_WAIT);
         }
-        agent::run(!args.iter().any(|a| a == BACKGROUND));
+        // Started with Windows (the Toolbox's own Run entry, DESIGN.md 8): only the tray icon.
+        agent::run(!args.iter().any(|a| a == BACKGROUND || a == kit::autostart::ARGUMENT));
     }
 }
 

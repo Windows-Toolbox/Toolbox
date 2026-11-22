@@ -19,8 +19,10 @@ use kit::tray::{self, Event, Icon, Item, Tray, Waker};
 use kit::{app, i18n, t, update};
 use windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
 
+use crate::backup::{self, Plan};
 use crate::catalog::{self, Offer};
 use crate::library::{self, Entry, Library, Missing, Run, Target, Updatable, Updating};
+use crate::system::{self, Own, Trace};
 use crate::talk::{Ask, Tell};
 
 /// Fixed identities of the tray icons – Windows remembers "show this icon" per exe path and uid (DESIGN.md 6).
@@ -83,6 +85,12 @@ struct Agent {
     updating: BTreeMap<String, Updating>,
     /// The list of "Get programs" as it was last loaded and checked; "Get" takes a program only from it.
     catalog: Vec<Offer>,
+    /// When "Restart after a crash" started a program again, by id – at most three times in ten minutes.
+    restarts: BTreeMap<String, Vec<Instant>>,
+    /// What the Toolbox itself has in Windows.
+    own: Own,
+    /// Uninstall all happened: the folders that can now be deleted, said once the Toolbox has ended.
+    uninstalled: Option<Vec<PathBuf>>,
 }
 
 type Shared = Arc<Mutex<Agent>>;
@@ -106,7 +114,7 @@ impl Agent {
     }
 
     fn library(&self) -> Library {
-        Library { settings: self.settings.value.clone(), programs: self.programs.clone(), missing: self.missing.clone(), folder: self.base.clone(), data: app::data_dir(), updating: self.updating.clone() }
+        Library { settings: self.settings.value.clone(), programs: self.programs.clone(), missing: self.missing.clone(), folder: self.base.clone(), data: app::data_dir(), updating: self.updating.clone(), own: self.own.clone() }
     }
 
     fn tell(&self, msg: &Tell) {
@@ -166,7 +174,10 @@ impl Agent {
     /// Windows" – Task Manager can switch it off at any time. Kit programs push their status. `true` if something
     /// changed.
     fn refresh(&mut self) -> bool {
-        let mut changed = false;
+        // The Toolbox's own entry (the Start menu shortcut is read only when it may have changed – it needs COM).
+        let own = autostart::read(library::OWN_ID);
+        let mut changed = own != self.own.autostart;
+        self.own.autostart = own;
         for e in &mut self.programs {
             changed |= e.read_autostart();
             let running = match e.kind {
@@ -178,7 +189,8 @@ impl Agent {
             };
             if e.run.running != running {
                 // "Crashed" stays until the program runs again.
-                e.run = Run { running, crashed: e.run.crashed && running != Some(true), ..Default::default() };
+                let after = running != Some(true);
+                e.run = Run { running, crashed: e.run.crashed && after, gave_up: e.run.gave_up && after, ..Default::default() };
                 changed = true;
             }
         }
@@ -233,7 +245,7 @@ fn follow(shared: &Shared, id: &str, first: Option<Command>) {
             match state {
                 State::Status(s) => {
                     if let Some(e) = a.entry_mut(&id) {
-                        e.run = Run { running: Some(s.running), state: s.state, text: s.text, crashed: false };
+                        e.run = Run { running: Some(s.running), state: s.state, text: s.text, ..Default::default() };
                     }
                 }
                 State::Tray(tray) => {
@@ -253,15 +265,49 @@ fn follow(shared: &Shared, id: &str, first: Option<Command>) {
         // Not if the agent itself let go of it (the program was taken off the list).
         if a.links.get(&id).is_some_and(|l| Arc::ptr_eq(&l.conn, &conn)) {
             a.links.remove(&id);
+            let (ran, again) = a.entry(&id).map_or((false, false), |e| (e.run.running == Some(true), e.restart_after_crash(&a.settings.value)));
             if let Some(e) = a.entry_mut(&id) {
                 // A pipe that closes without `bye`: the program did not end on purpose (DESIGN.md 8).
                 e.run = Run { running: Some(false), crashed: !bye, ..Default::default() };
             }
             if !bye {
                 app::log(&format!("{id} ended without saying bye – crashed?"));
+                // Only what ran: a process that only served its page has nothing to start again.
+                if ran && again {
+                    restart_after_crash(&mut a, &shared, &id);
+                }
             }
             a.changed();
         }
+    });
+}
+
+/// How often "Restart after a crash" starts a program again within `RESTART_WINDOW` before it gives up.
+const RESTARTS: usize = 3;
+const RESTART_WINDOW: Duration = Duration::from_secs(600);
+
+/// "Restart after a crash" (DESIGN.md 8): starts the program again after a moment – at most three times in ten
+/// minutes; then it gives up and says so, so a program that crashes at once does not run in circles.
+fn restart_after_crash(a: &mut Agent, shared: &Shared, id: &str) {
+    let name = a.entry(id).map(name_of).unwrap_or_else(|| id.to_string());
+    let now = Instant::now();
+    let times = a.restarts.entry(id.to_string()).or_default();
+    times.retain(|t| now.duration_since(*t) < RESTART_WINDOW);
+    if times.len() >= RESTARTS {
+        if let Some(e) = a.entry_mut(id) {
+            e.run.gave_up = true;
+        }
+        return a.toast(t!("toast.crash.gave_up", name = name), true);
+    }
+    times.push(now);
+    let n = times.len();
+    app::log(&format!("{id} is started again after its crash ({n} of {RESTARTS})"));
+    a.toast(t!("toast.crash.restarted", name = name, n = n), false);
+    let (shared, id) = (shared.clone(), id.to_string());
+    std::thread::spawn(move || {
+        // What crashed may still be on its way out.
+        std::thread::sleep(Duration::from_secs(2));
+        act(&shared, start, id);
     });
 }
 
@@ -633,6 +679,209 @@ fn get_program(shared: &Shared, id: String) {
     });
 }
 
+// ---------- the Toolbox in Windows ----------
+
+/// Reads again what the Toolbox has in Windows (the shortcut through COM – only after it may have changed).
+fn read_own(a: &mut Agent) {
+    a.own = system::own(&own_exe());
+}
+
+/// "Start the Toolbox with Windows" and "Show in the Start menu" (DESIGN.md 8). Off removes only what starts this
+/// copy – another copy's entry or shortcut is left alone.
+fn set_own(shared: &Shared, autostart_on: Option<bool>, start_menu_on: Option<bool>) {
+    let mut a = lock(shared);
+    let exe = own_exe();
+    let result = match (autostart_on, start_menu_on) {
+        (Some(true), _) => autostart::set(library::OWN_ID, Some(&exe)).map_err(|e| e.to_string()),
+        (Some(false), _) if a.own.autostart_is_mine() => autostart::set(library::OWN_ID, None).map_err(|e| e.to_string()),
+        (_, Some(true)) => system::write_shortcut(&system::shortcut_path(), &exe),
+        (_, Some(false)) if a.own.shortcut_is_mine() => system::remove(&Trace::Shortcut { path: system::shortcut_path(), target: None }),
+        _ => Ok(()),
+    };
+    if let Err(why) = result {
+        a.toast(t!("toast.own_failed", why = why), true);
+    }
+    read_own(&mut a);
+    // Also after a refusal: the window then shows what holds.
+    a.last_sent.clear();
+    a.changed();
+}
+
+/// What still names an exe that is gone after a move is pointed at the new place: the Toolbox's own entries, and
+/// "Start with Windows" of every program on the list. Before Clean up looks, so a moved program is not "left over".
+fn repair_all(a: &Agent) {
+    system::repair_own(&own_exe());
+    for e in a.programs.iter().filter(|e| e.has_autostart()) {
+        if let Some(exe) = e.exe().filter(|exe| exe.is_file()) {
+            autostart::repair(e.id(), &exe);
+        }
+    }
+}
+
+/// Clean up and Uninstall all: what there is, for the window to list before anything is removed.
+fn find_traces(shared: &Shared, everything: bool) {
+    let shared = shared.clone();
+    std::thread::spawn(move || {
+        repair_all(&lock(&shared));
+        let traces = system::traces(everything);
+        lock(&shared).tell(&Tell::Traces { everything, traces });
+    });
+}
+
+/// Clean up: removes what the window listed – as far as it still belongs to no program.
+fn clean_up(shared: &Shared, chosen: Vec<Trace>) {
+    let now = system::traces(false);
+    let (mut removed, mut failed) = (0, vec![]);
+    for trace in chosen.iter().filter(|t| now.contains(t)) {
+        match system::remove(trace) {
+            Ok(()) => removed += 1,
+            Err(why) => failed.push(why),
+        }
+    }
+    let mut a = lock(shared);
+    read_own(&mut a);
+    for e in &mut a.programs {
+        e.read_autostart();
+    }
+    match failed.first() {
+        Some(why) => a.toast(t!("toast.clean_failed", why = why), true),
+        None => a.toast(t!("toast.cleaned", count = removed), false),
+    }
+    a.last_sent.clear();
+    a.changed();
+}
+
+/// Uninstall all (DESIGN.md 9): every trace out of Windows, every program and the Toolbox ended, and the Toolbox's
+/// folder opened – deleting it is left to the user.
+fn uninstall(shared: &Shared) {
+    for trace in system::traces(true) {
+        if let Err(why) = system::remove(&trace) {
+            app::log(&format!("uninstall: {trace:?} could not be removed: {why}"));
+        }
+    }
+    let mut a = lock(shared);
+    app::log("uninstalled: every entry in Windows removed, the Toolbox and all programs end");
+    // The Toolbox's folder and every program's that does not lie in it – what is left to delete by hand.
+    let mut folders = vec![a.base.clone()];
+    for entry in &a.programs {
+        if !folders.iter().any(|f| entry.folder.starts_with(f)) {
+            folders.push(entry.folder.clone());
+        }
+    }
+    a.uninstalled = Some(folders);
+    a.quit = Some(true);
+    if let Some(waker) = a.waker {
+        waker.wake();
+    }
+}
+
+// ---------- export / import all settings ----------
+
+/// "Export all settings" (DESIGN.md 8): the Toolbox's `settings.json` and every program's, in one zip.
+fn export(shared: &Shared, file: PathBuf) {
+    let mut a = lock(shared);
+    a.save();
+    let result = backup::export(&a.settings.path, &a.programs, crate::META.version).and_then(|(bytes, count)| {
+        std::fs::write(&file, bytes).map_err(|e| format!("{}: {e}", file.display()))?;
+        Ok(count)
+    });
+    match result {
+        Ok(count) => a.toast(t!("toast.exported", count = count, file = file.display()), false),
+        Err(why) => a.toast(t!("toast.export_failed", why = why), true),
+    }
+}
+
+/// The Toolbox's settings after an import: look, language and switches from the file, the list as it is here plus
+/// the programs of the file's list whose folders are found here.
+fn imported_settings(a: &Agent, from: &serde_json::Value) -> library::Settings {
+    let theirs: library::Settings = serde_json::from_value(from.clone()).unwrap_or_default();
+    let mut new = library::Settings { programs: a.settings.value.programs.clone(), ..theirs.clone() };
+    let (mut listed, _) = library::load(&new, &a.base, &a.programs);
+    for stored in &theirs.programs {
+        let folder = library::resolve(&a.base, stored);
+        if folder.is_dir() {
+            library::add(&mut new, &listed, &a.base, &folder);
+            listed = library::load(&new, &a.base, &a.programs).0;
+        }
+    }
+    new.checked()
+}
+
+/// What importing `file` would do – the programs it brings settings for must be on the list (after the import).
+fn import_plan(a: &Agent, file: &std::path::Path) -> Result<(Plan, backup::Contents, Option<library::Settings>), String> {
+    let bytes = std::fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let contents = backup::read(&bytes)?;
+    let settings = contents.toolbox.as_ref().map(|t| imported_settings(a, t));
+    let listed = match &settings {
+        Some(s) => library::load(s, &a.base, &a.programs).0,
+        None => a.programs.clone(),
+    };
+    let mut plan = Plan { file: file.to_path_buf(), toolbox: settings.is_some(), programs: vec![], skipped: vec![] };
+    for (id, (name, _)) in &contents.programs {
+        match listed.iter().find(|e| e.id() == id) {
+            Some(e) => plan.programs.push(e.manifest.name.clone()),
+            None => plan.skipped.push(name.clone()),
+        }
+    }
+    Ok((plan, contents, settings))
+}
+
+/// "Import settings": first the plan, shown in the gear; nothing is changed yet.
+fn check_import(shared: &Shared, file: PathBuf) {
+    let a = lock(shared);
+    let plan = import_plan(&a, &file).map(|(plan, ..)| plan);
+    a.tell(&Tell::Plan(plan));
+}
+
+/// … then the import itself: the Toolbox's settings, then each program's file. A kit program ends first (it keeps
+/// its settings in memory and would write the old ones back) and starts again if it ran.
+fn import(shared: &Shared, file: PathBuf) {
+    let shared = shared.clone();
+    std::thread::spawn(move || {
+        let planned = import_plan(&lock(&shared), &file);
+        let (_, contents, settings) = match planned {
+            Ok(p) => p,
+            Err(why) => return lock(&shared).toast(t!("toast.import_failed", why = why), true),
+        };
+        if let Some(settings) = settings {
+            let mut a = lock(&shared);
+            a.settings.value = settings;
+            a.save();
+            a.reload();
+            a.refresh();
+            i18n::set_language(&a.settings.value.language);
+            let hello = Command::Hello(a.hello());
+            for link in a.links.values() {
+                let _ = link.conn.send(&hello);
+            }
+        }
+        follow_running(&shared);
+        let (mut count, mut failed) = (0, vec![]);
+        for (id, (_, bytes)) in &contents.programs {
+            let Some(entry) = lock(&shared).entry(id).cloned() else { continue };
+            let ran = make_way(&shared, id);
+            match backup::write_settings(&backup::settings_file(&entry), bytes) {
+                Ok(()) => count += 1,
+                Err(why) => failed.push(why),
+            }
+            if ran {
+                start(&shared, id);
+            }
+        }
+        let mut a = lock(&shared);
+        a.reload();
+        a.refresh();
+        match failed.first() {
+            Some(why) => a.toast(t!("toast.import_failed", why = why), true),
+            None => a.toast(t!("toast.imported", count = count), false),
+        }
+        // The new library first: the window takes language, theme and zoom from it once it hears "imported".
+        a.last_sent.clear();
+        a.changed();
+        a.tell(&Tell::Imported);
+    });
+}
+
 // ---------- the window ----------
 
 /// Opens the window – or brings the open one to the front – on this program's page if given.
@@ -747,7 +996,7 @@ fn handle(shared: &Shared, ask: Ask) {
                 language: if i18n::is_language(&language) { language } else { now.language.clone() },
                 theme: if kit::ui::THEMES.contains(&theme.as_str()) { theme } else { now.theme.clone() },
                 zoom: if (0.5..=3.0).contains(&zoom) { zoom } else { now.zoom },
-                programs: now.programs.clone(),
+                ..now.clone()
             };
             if new == a.settings.value {
                 return;
@@ -838,6 +1087,28 @@ fn handle(shared: &Shared, ask: Ask) {
         Ask::UpdateAll => update_all(shared),
         Ask::Catalog => load_catalog(shared),
         Ask::Get { id } => get_program(shared, id),
+        Ask::RestartAfterCrash { id, on } => {
+            let mut a = lock(shared);
+            if a.entry(&id).is_none_or(|e| !e.has_autostart()) {
+                return;
+            }
+            let list = &mut a.settings.value.restart_after_crash;
+            list.retain(|i| i != &id);
+            if on {
+                list.push(id.clone());
+            }
+            a.restarts.remove(&id);
+            a.save();
+            a.changed();
+        }
+        Ask::OwnAutostart { on } => set_own(shared, Some(on), None),
+        Ask::StartMenu { on } => set_own(shared, None, Some(on)),
+        Ask::Export { file } => export(shared, file),
+        Ask::ImportCheck { file } => check_import(shared, file),
+        Ask::Import { file } => import(shared, file),
+        Ask::Traces { everything } => find_traces(shared, everything),
+        Ask::CleanUp { traces } => clean_up(shared, traces),
+        Ask::Uninstall => uninstall(shared),
         Ask::Window | Ask::Unknown => {}
     }
 }
@@ -1048,8 +1319,21 @@ pub fn run(open: bool) {
         watching: false,
         updating: BTreeMap::new(),
         catalog: vec![],
+        restarts: BTreeMap::new(),
+        own: Own::default(),
+        uninstalled: None,
     };
     let shared: Shared = Arc::new(Mutex::new(agent));
+    // After a move, what Windows remembers by path follows the folder (DESIGN.md 2); then what holds is read.
+    {
+        let shared = shared.clone();
+        std::thread::spawn(move || {
+            repair_all(&lock(&shared));
+            let mut a = lock(&shared);
+            read_own(&mut a);
+            a.changed();
+        });
+    }
 
     let waker = tray::create({
         let shared = shared.clone();
@@ -1115,6 +1399,16 @@ pub fn run(open: bool) {
     tray::run_loop();
     // Give the window's writer a moment to hand over the `bye`.
     std::thread::sleep(Duration::from_millis(150));
+    // After Uninstall all: everything has ended; what is left are the folders – said, then the Toolbox's opened.
+    let uninstalled = lock(&shared).uninstalled.take();
+    if let Some(folders) = uninstalled {
+        let list: String = folders.iter().map(|f| format!("\n• {}", f.display())).collect();
+        app::message_box("Windows Toolbox", &t!("gear.uninstall.done", folders = list), false);
+        // Tests never open a window.
+        if ipc::sandbox().is_empty() {
+            process::open(&folders[0].to_string_lossy());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1149,6 +1443,9 @@ mod tests {
             watching: false,
             updating: BTreeMap::new(),
             catalog: vec![],
+            restarts: BTreeMap::new(),
+            own: Own::default(),
+            uninstalled: None,
         }
     }
 

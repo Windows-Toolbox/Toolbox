@@ -610,7 +610,9 @@ second while a window is open. With the window closed there is no timer at all.
 (4.3), the program did not end on purpose: its entry shows "crashed" with a link to its `log.txt` (the kit writes
 a panic there), in the menu and on its page. "Restart after a crash" is a switch per background program, off by
 default; switched on, the agent starts the program again – at most three times in ten minutes, then it gives up
-and says so.
+and says so (a message, the log, and "gave up" on its page until the program runs again). Only a program whose
+workers ran is started again: a process that only served its page has nothing to restart. The switch is stored in
+the Toolbox's settings (`restart_after_crash`, a list of ids), next to "Start with Windows" on the program's page.
 
 **Window** – opened by icon click, double-click on `Toolbox.exe`, or `show`:
 
@@ -760,6 +762,20 @@ shortcuts. PawnIO stays installed (`winget uninstall namazso.PawnIO`).
 task, a Run key or a protected folder behind. Because every such name starts with `WindowsToolbox`, the Toolbox
 can find them: Gear → Clean up lists the entries whose program no longer exists and removes them after a click
 (one admin prompt if a task or a protected folder is among them). Nothing is removed without being listed first.
+Before it looks, what names an exe that is gone but belongs to a program on the list (a moved folder) is pointed at
+the new place – a moved program is not "left over".
+
+Built in M6 (2026-11-22) for what exists today: the Run entries `WindowsToolbox.<id>` and the Start menu shortcut.
+Tasks and the protected folder join when `kit::setup` creates them (M4) – until then nothing of ours has those
+names. The Python monitor's task is called `HardwareMonitor` (without the prefix) and is not found; it leaves with
+the Python monitor.
+
+**Uninstall all**, built the same way: the gear lists every trace (all `WindowsToolbox.<id>` entries, the Start
+menu shortcut) and says that what a program set up with admin rights itself stays; "Uninstall and quit" removes
+them, ends every program and the Toolbox, then a message box lists the folders that can now simply be deleted
+(the Toolbox's and every program's outside it) and the Toolbox's folder opens. Deleting them is left to the user –
+a folder may be a developer's git clone, and an exe cannot delete the folder it runs from. A per-program
+**Uninstall** arrives with `kit::setup` (M4) – today only the Hardware Monitor sets anything up.
 
 ---
 
@@ -892,12 +908,27 @@ Python with its own runtime, started with admin rights through a task. The port,
 
 Then Python leaves the Hardware Monitor's repo too.
 
-**M6 – the rest of the frame.**
+**M6 – the rest of the frame** (built 2026-11-22, Toolbox v2.1.0):
 
-- **Restart after a crash** – a switch per background program, off by default (section 8).
-- **Start with Windows** for the Toolbox itself, and **Show in the Start menu** (section 8).
-- **Export / import all settings** (one zip with the `data\settings.json` of the Toolbox and of every program).
+- **Restart after a crash** on the page of every background kit program, off by default (section 8). Tested with
+  the agent and a program played by the test: three crashes are started again (the `start` arrives), the fourth
+  gives up, the program's own return clears it.
+- **Start the Toolbox with Windows** and **Show in the Start menu** in the gear → Toolbox (section 8). The Run
+  entry is `WindowsToolbox.toolbox` with `--autostart` (the agent then opens no window); the shortcut
+  `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Windows Toolbox.lnk` is written through COM (`IShellLinkW`, the
+  `windows` crate that eframe brings along anyway) and carries the application id `WindowsToolbox.toolbox`, so
+  Windows takes it and the running Toolbox for one program. Both follow a move: the agent re-points them at its
+  start if they name an exe that is gone. Another copy's entry or shortcut is shown, never removed by "off".
+  Checked in a sandbox: the shortcut's target, folder, icon and application id as Windows reads them.
+- **Export / import all settings** in the gear (15.8): the file dialog, then for an import first what it will do
+  (the Toolbox, which programs, which are left out because they are not on the list) and a button. A running kit
+  program ends before its file is replaced (it would write its old settings back) and starts again; the window
+  takes language, colours and size from the imported settings.
 - **Clean up** and **Uninstall all** in the gear (section 9).
+- In the sandbox the Run key lies where Windows does not look and the shortcut in the test's data folder; Uninstall
+  opens no folder there and its message goes to the log. Tested by hand on the real PC (2026-11-22): restart after
+  a crash, starting with Windows (only the tray icon), the Start menu entry (pinned: one taskbar icon), export /
+  import, Clean up, Uninstall all. After that, Uninstall all got its closing message listing the folders to delete.
 
 **Screen Zones – more per game** (concept 2026-11-18, not built yet; details in its README):
 
@@ -1220,7 +1251,7 @@ they are built and written back here.
 | `i18n` | `t!("id")`, `t!("id", name = value)` · `texts!()` – loads the program's `assets\i18n.json` · `LANGUAGES` · `set_language(lang)` · `language()` · `system_language()` · `check_ids(crate_dir)` for the test |
 | `manifest` | `Manifest::read(folder)` (`dist\program.json`, else `program.json`) · `Manifest::find(folder)` – the folder or one level below it · `Manifest::kind() -> Script/Kit/Exe` (a manifest without `run` and `exe` is refused) · `Text::{get(lang), key()}` · `ScriptOption` |
 | `build` | `build::manifest()` for `build.rs` (15.4): `program.json`, the facts for `meta!()`, and the resource with icon, name and version – written by hand as a `.res` file, so no resource compiler has to be installed |
-| `autostart` | `read(id) -> Entry { state, target }` · `state(id) -> Off/On/DisabledByWindows` – also reads Windows' "switched off" note · `set(id, Some(exe) / None)` – `Some` switches a disabled entry back on · `repair(id, exe)` – re-points an entry whose exe no longer exists (moved folder), leaves one whose exe exists alone · `ARGUMENT` (`--autostart`: started by Windows, no window) · direct registry calls in HKCU, no PowerShell |
+| `autostart` | `read(id) -> Entry { state, target }` · `state(id) -> Off/On/DisabledByWindows` – also reads Windows' "switched off" note · `set(id, Some(exe) / None)` – `Some` switches a disabled entry back on · `repair(id, exe)` – re-points an entry whose exe no longer exists (moved folder), leaves one whose exe exists alone · `all()` – the ids of every `WindowsToolbox.<id>` entry (Clean up) · `ARGUMENT` (`--autostart`: started by Windows, no window) · direct registry calls in HKCU, no PowerShell |
 | `http` | `get(url, headers, limit)` · `post_form(url, fields, limit)` · `Response::{status, body, ok(), text()}` · `encode(s)` – through WinHTTP (part of Windows: no crate, the PC's proxy and certificates); `https://` only, fixed user agent `windows-toolbox`, nothing about the user or the PC sent along |
 | `update` | `latest(repository, id) -> Option<Release { version, zip: Option, signature: Option }>` – a release without our two files still tells its version · `download(release, key)` – checks the signature before anything else · `install(zip, folder, id, newer_than) -> Manifest` – the manifest inside the signed zip must name `id` and a newer version; names outside the folder or in `data\` refused; unpacked aside first, files in use put aside, a failed swap undone · `clean_up(folder)` – what an update put aside · `developer_copy(home)` – own builds are not updated · `verify`, `compare_versions`, `base64_encode/decode`, `zip::{write, read}` (stored + deflate, `miniz_oxide`) · `KEY` |
 | `setup` *(still to come)* | `steps![…]` · `Step::{Winget, Download, Copy, Task}` · `pending() -> Vec<Step>` · `run(steps)` |
@@ -1230,4 +1261,24 @@ they are built and written back here.
 `serde_json` 1.0.154; Rust 1.99.0, edition 2024. Added in M1 (looked up 2026-11-16): `rfd` 0.18.0 – the folder
 dialog of **Add program…**; only the Toolbox uses it. Added ahead of M3 (looked up 2026-11-16): `ed25519-dalek`
 3.0.0 (signatures; the kit checks, `sign` signs), `miniz_oxide` 0.9.1 (deflate in release zips), `getrandom` 0.4.3
-(only `sign`, for the key). No HTTPS crate: `kit::http` uses WinHTTP.
+(only `sign`, for the key). No HTTPS crate: `kit::http` uses WinHTTP. Added in M6 (2026-11-22): `windows` 0.62.2 in
+the Toolbox only, for the Start menu shortcut (COM) – eframe already depended on it, so nothing new is compiled
+but its COM parts.
+
+### 15.8 Exported settings
+
+One zip, written by Gear → Export (`toolbox\src\backup.rs`), read by Gear → Import:
+
+```
+windows-toolbox-settings.json      {"version": "<Toolbox version>", "programs": [{"id": "screen_zones", "name": {…}}]}
+toolbox/settings.json              the Toolbox's data\settings.json as it was saved
+programs/<id>/settings.json        each listed program's data\settings.json (a kit program's and an exe's next to
+                                   its exe, a script's next to its manifest) – only those that have one
+```
+
+Import: from the Toolbox's file it takes language, colours, size and `restart_after_crash`; its list of folders is
+added to the list here as far as the folders exist (relative ones resolved from this Toolbox's folder). A program's
+file is put back only if that program is on the list (after that addition) – by id, so it does not matter where its
+folder lies. Ids outside `[a-z0-9_]+`, files that are no JSON object and zips without the index are refused. No
+logs, no other files of a program.
+

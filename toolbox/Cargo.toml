@@ -1,6 +1,6 @@
 [package]
 name = "toolbox"
-version = "2.0.0"
+version = "2.1.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -25,6 +25,8 @@ rfd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+# COM, for the Start menu shortcut only (system.rs) – eframe already brings this crate along.
+windows = { version = "0.62.2", features = ["Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_UI_Shell", "Win32_UI_Shell_PropertiesSystem", "Win32_Storage_EnhancedStorage", "Win32_Storage_FileSystem", "Win32_System_Variant"] }
 
 [dev-dependencies]
 ed25519-dalek.workspace = true

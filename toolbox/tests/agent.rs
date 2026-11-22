@@ -199,7 +199,7 @@ fn a_kit_program_is_followed() {
     assert_eq!((said.language.as_str(), said.want), ("en", vec![Want::Status, Want::Tray]));
     status(&link, "42 °C");
     let listed = library(&window, |l| l["programs"][0]["run"]["running"] == true);
-    assert_eq!(listed["programs"][0]["run"], json!({"running": true, "state": "warn", "text": "42 °C", "crashed": false}));
+    assert_eq!(listed["programs"][0]["run"], json!({"running": true, "state": "warn", "text": "42 °C", "crashed": false, "gave_up": false}));
 
     // A new language reaches the running program at once.
     window.send(&json!({"type": "look", "language": "de", "theme": "dark", "zoom": 1.0})).unwrap();
@@ -218,6 +218,32 @@ fn a_kit_program_is_followed() {
     assert_eq!(hello(&link).language, "de");
     status(&link, "43 °C");
     library(&window, |l| l["programs"][0]["run"]["text"] == "43 °C" && l["programs"][0]["run"]["crashed"] == false);
+
+    // "Restart after a crash" (DESIGN.md 8): switched on, a crash starts the program again – here that is this
+    // test's pipe, so "start" arrives at it. Three times in ten minutes, then the agent gives up and says so.
+    window.send(&json!({"type": "restart_after_crash", "id": ID, "on": true})).unwrap();
+    library(&window, |l| l["settings"]["restart_after_crash"] == json!([ID]));
+    assert_eq!(toolbox.settings()["restart_after_crash"], json!([ID]));
+    let mut link = link;
+    for n in 1..=3 {
+        drop(link);
+        let text = until(&window, |told| (told["type"] == "toast").then(|| told["text"].as_str().unwrap_or_default().to_string()));
+        assert_eq!(text, format!("Fake ist abgestürzt und wurde neu gestartet ({n} von 3)."));
+        link = program.accept().unwrap();
+        hello(&link);
+        assert_eq!(link.read::<Command>(), Some(Command::Start));
+        status(&link, "back");
+        library(&window, |l| l["programs"][0]["run"]["text"] == "back");
+    }
+    drop(link);
+    let gave_up = library(&window, |l| l["programs"][0]["run"]["gave_up"] == true);
+    assert_eq!(gave_up["programs"][0]["run"]["crashed"], true);
+    // The program comes back by itself: what it reports clears "gave up".
+    ipc::connect(ipc::TOOLBOX).unwrap().send(&json!({"type": "started", "id": ID})).unwrap();
+    let link = program.accept().unwrap();
+    hello(&link);
+    status(&link, "44 °C");
+    library(&window, |l| l["programs"][0]["run"]["gave_up"] == false && l["programs"][0]["run"]["text"] == "44 °C");
 
     // "Toolbox and all programs": the program is asked to quit. It says `bye` – that is no crash.
     window.send(&json!({"type": "quit", "all": true})).unwrap();
@@ -286,6 +312,134 @@ fn a_second_start_ends_at_once() {
     let second = Process::new(env!("CARGO_BIN_EXE_toolbox")).arg("--background").env(kit::app::data_dir_variable(ipc::TOOLBOX), toolbox.root.join("Other").join("data")).status().unwrap();
     assert!(second.success());
     assert!(!toolbox.root.join("Other").exists(), "the second start must not write settings of its own");
+    window.send(&json!({"type": "quit"})).unwrap();
+    toolbox.wait_exit();
+}
+
+/// What the Toolbox itself puts into Windows (DESIGN.md 8, 9): its own "Start with Windows" and the Start menu
+/// shortcut, switched on and off from the gear; Clean up lists only what belongs to no program any more, and a
+/// moved program's entry is pointed at its new place instead. In the sandbox the Run key lies where Windows does
+/// not look and the shortcut lies in the test's folder.
+#[test]
+fn the_toolbox_in_windows() {
+    use kit::autostart::{self, State as Autostart};
+    let _turn = turn();
+    let mut toolbox = Toolbox::start("windows");
+    let exe = PathBuf::from(env!("CARGO_BIN_EXE_toolbox"));
+    let shortcut = toolbox.root.join("Toolbox").join("data").join(format!("start-menu{}", ipc::sandbox())).join("Windows Toolbox.lnk");
+    for id in ["toolbox", "fake_moved", "fake_deleted"] {
+        let _ = autostart::set(id, None);
+    }
+    // A program on the list whose folder was moved (its entry names the old place), and one that was deleted.
+    toolbox.write("Moved/program.json", r#"{"id":"fake_moved","name":"Moved","exe":"Moved.exe","protocol":1,"background":true}"#);
+    toolbox.write("Moved/Moved.exe", "");
+    autostart::set("fake_moved", Some(Path::new(r"C:\Old Place\Moved.exe"))).unwrap();
+    autostart::set("fake_deleted", Some(Path::new(r"C:\Deleted\Gone.exe"))).unwrap();
+
+    let (window, first) = toolbox.window();
+    assert_eq!(first["own"]["autostart"], json!({"state": "off", "target": null}));
+    window.send(&json!({"type": "own_autostart", "on": true})).unwrap();
+    library(&window, |l| l["own"]["autostart"]["state"] == "on");
+    // The Toolbox's exe by its name (`Toolbox.exe`) – the same file as cargo's `toolbox.exe`.
+    let lower = |v: &Value| v.as_str().unwrap_or_default().to_lowercase();
+    let exe_text = exe.to_string_lossy().to_lowercase();
+    assert_eq!(autostart::state("toolbox"), Autostart::On);
+    assert_eq!(autostart::read("toolbox").target.unwrap().to_string_lossy().to_lowercase(), exe_text);
+    window.send(&json!({"type": "start_menu", "on": true})).unwrap();
+    let listed = library(&window, |l| !l["own"]["shortcut"].is_null());
+    assert!(shortcut.is_file(), "the shortcut lies in the sandbox's folder");
+    assert_eq!(lower(&listed["own"]["shortcut"]), exe_text);
+
+    // Clean up: the deleted program's entry – not the Toolbox's, and not the moved one's, which is repaired.
+    window.send(&json!({"type": "add", "folder": toolbox.root.join("Moved")})).unwrap();
+    library(&window, |l| l["programs"].as_array().is_some_and(|p| p.len() == 1));
+    window.send(&json!({"type": "traces", "everything": false})).unwrap();
+    let found = until(&window, |told| (told["type"] == "traces").then(|| told.clone()));
+    assert_eq!(found["traces"], json!([{"kind": "autostart", "id": "fake_deleted", "target": r"C:\Deleted\Gone.exe"}]));
+    assert_eq!(autostart::read("fake_moved").target, Some(toolbox.root.join("Moved").join("Moved.exe")), "pointed at the new place");
+    window.send(&json!({"type": "clean_up", "traces": found["traces"]})).unwrap();
+    let text = until(&window, |told| (told["type"] == "toast").then(|| told["text"].clone()));
+    assert_eq!(text, "Removed: 1.");
+    assert_eq!(autostart::state("fake_deleted"), Autostart::Off);
+    assert_eq!(autostart::state("toolbox"), Autostart::On, "Clean up leaves what belongs to a program");
+
+    // Uninstall all lists everything; then both switches off again from the gear.
+    window.send(&json!({"type": "traces", "everything": true})).unwrap();
+    let all = until(&window, |told| (told["type"] == "traces").then(|| told["traces"].clone()));
+    let kinds: Vec<String> = all.as_array().unwrap().iter().map(|t| format!("{}:{}", t["kind"].as_str().unwrap(), t["id"].as_str().unwrap_or("lnk"))).collect();
+    assert!(kinds.contains(&"autostart:toolbox".into()) && kinds.contains(&"autostart:fake_moved".into()) && kinds.contains(&"shortcut:lnk".into()), "{kinds:?}");
+    window.send(&json!({"type": "own_autostart", "on": false})).unwrap();
+    library(&window, |l| l["own"]["autostart"]["state"] == "off");
+    window.send(&json!({"type": "start_menu", "on": false})).unwrap();
+    library(&window, |l| l["own"]["shortcut"].is_null());
+    assert!(!shortcut.exists());
+
+    // Uninstall all: every entry out of Windows, and the agent ends (in the sandbox it opens no folder).
+    window.send(&json!({"type": "uninstall"})).unwrap();
+    until(&window, |told| (told["type"] == "bye").then_some(()));
+    toolbox.wait_exit();
+    assert!(autostart::all().is_empty(), "nothing of ours is left: {:?}", autostart::all());
+    // Then it says which folders can be deleted now (in the sandbox the message box goes to the log).
+    let log = std::fs::read_to_string(toolbox.root.join("Toolbox").join("data").join("log.txt")).unwrap();
+    let folder = toolbox.root.join("Toolbox").display().to_string();
+    let said = log.split("simply delete these folders:").nth(1).unwrap_or_else(|| panic!("no farewell in the log: {log}"));
+    assert!(said.lines().nth(1).is_some_and(|l| l == format!("• {folder}")), "{said}");
+    let _ = Process::new("reg").args(["delete", &format!(r"HKCU\Software\WindowsToolbox\Sandbox{}", ipc::sandbox()), "/f"]).output();
+}
+
+/// Export and import all settings (DESIGN.md 8): one zip with the Toolbox's settings and each program's; the import
+/// is shown first, then the files are put back – and a program that is not on the list is left out.
+#[test]
+fn settings_export_and_import() {
+    let _turn = turn();
+    let mut toolbox = Toolbox::start("backup");
+    toolbox.write("Script/program.json", r#"{"id":"fake_script","name":"Script","run":"s.ps1","options":{"Pos":{"values":["Left","Right"],"default":"Right"}}}"#);
+    toolbox.write("Script/s.ps1", "");
+    let (window, _) = toolbox.window();
+    window.send(&json!({"type": "add", "folder": toolbox.root.join("Script")})).unwrap();
+    library(&window, |l| l["programs"].as_array().is_some_and(|p| p.len() == 1));
+    window.send(&json!({"type": "set_option", "id": "fake_script", "name": "Pos", "value": "Left"})).unwrap();
+    window.send(&json!({"type": "look", "language": "en", "theme": "light", "zoom": 1.5})).unwrap();
+    library(&window, |l| l["settings"]["theme"] == "light" && l["programs"][0]["options"]["Pos"] == "Left");
+
+    let zip = toolbox.root.join("Backup.zip");
+    window.send(&json!({"type": "export", "file": zip})).unwrap();
+    let text = until(&window, |told| (told["type"] == "toast").then(|| told["text"].as_str().unwrap_or_default().to_string()));
+    assert!(text.starts_with("Settings saved:") && text.ends_with("(the Toolbox + 1 programs)"), "{text}");
+
+    // Everything changed afterwards …
+    window.send(&json!({"type": "set_option", "id": "fake_script", "name": "Pos", "value": "Right"})).unwrap();
+    window.send(&json!({"type": "look", "language": "en", "theme": "dark", "zoom": 1.0})).unwrap();
+    library(&window, |l| l["settings"]["theme"] == "dark" && l["programs"][0]["options"]["Pos"] == "Right");
+
+    // … the plan first: nothing is changed by it.
+    window.send(&json!({"type": "import_check", "file": zip})).unwrap();
+    let plan = until(&window, |told| (told["type"] == "plan").then(|| told.clone()));
+    assert_eq!(plan["Ok"]["toolbox"], true, "{plan}");
+    assert_eq!(plan["Ok"]["programs"], json!(["Script"]));
+    assert_eq!(toolbox.settings()["theme"], "dark");
+    // … then the import puts it back.
+    window.send(&json!({"type": "import", "file": zip})).unwrap();
+    until(&window, |told| (told["type"] == "imported").then_some(()));
+    let saved = toolbox.settings();
+    assert_eq!((&saved["theme"], &saved["zoom"]), (&json!("light"), &json!(1.5)));
+    assert_eq!(read_json(&toolbox.root.join("Script/data/settings.json"))["Pos"], "Left");
+
+    // Not ours: said so, nothing changed.
+    std::fs::write(toolbox.root.join("Other.zip"), b"not a zip").unwrap();
+    window.send(&json!({"type": "import_check", "file": toolbox.root.join("Other.zip")})).unwrap();
+    let plan = until(&window, |told| (told["type"] == "plan").then(|| told.clone()));
+    assert!(plan["Err"].is_string(), "{plan}");
+
+    // Off the list, the program is left out of an import.
+    window.send(&json!({"type": "remove", "stored": r"..\Script"})).unwrap();
+    library(&window, |l| l["programs"] == json!([]));
+    std::fs::write(toolbox.root.join("Toolbox/data/settings.json"), r#"{"language": "en"}"#).unwrap();
+    window.send(&json!({"type": "import_check", "file": zip})).unwrap();
+    let plan = until(&window, |told| (told["type"] == "plan").then(|| told.clone()));
+    // The Toolbox's list in the file names the script's folder, which exists: it comes back with the import.
+    assert_eq!(plan["Ok"]["programs"], json!(["Script"]), "{plan}");
+
     window.send(&json!({"type": "quit"})).unwrap();
     toolbox.wait_exit();
 }

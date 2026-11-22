@@ -374,5 +374,186 @@
   "toast.update.all": {
     "de": "Aktualisiert: {updated}, schon aktuell: {current}.",
     "en": "Updated: {updated}, up to date already: {current}."
+  },
+
+  "page.restart_crash": {
+    "de": "Nach einem Absturz neu starten",
+    "en": "Restart after a crash"
+  },
+  "page.restart_crash.hint": {
+    "de": "Höchstens dreimal in zehn Minuten – danach gibt die Toolbox auf und sagt es.",
+    "en": "At most three times in ten minutes – then the Toolbox gives up and says so."
+  },
+  "status.gave_up": {
+    "de": "Dreimal in zehn Minuten abgestürzt – die Toolbox startet es nicht mehr von selbst.",
+    "en": "Crashed three times in ten minutes – the Toolbox no longer starts it by itself."
+  },
+  "toast.crash.restarted": {
+    "de": "{name} ist abgestürzt und wurde neu gestartet ({n} von 3).",
+    "en": "{name} crashed and was started again ({n} of 3)."
+  },
+  "toast.crash.gave_up": {
+    "de": "{name} ist dreimal in zehn Minuten abgestürzt – die Toolbox startet es nicht mehr von selbst. Mehr steht in seinem Log.",
+    "en": "{name} crashed three times in ten minutes – the Toolbox no longer starts it by itself. Its log says more."
+  },
+  "gear.autostart": {
+    "de": "Toolbox mit Windows starten",
+    "en": "Start the Toolbox with Windows"
+  },
+  "gear.autostart.hint": {
+    "de": "Nur das Symbol im Tray, ohne Fenster. Programme mit „Mit Windows starten“ starten unabhängig davon.",
+    "en": "Only the tray icon, without the window. Programs with “Start with Windows” start regardless."
+  },
+  "gear.start_menu": {
+    "de": "Im Startmenü zeigen",
+    "en": "Show in the Start menu"
+  },
+  "gear.start_menu.elsewhere": {
+    "de": "Die Verknüpfung im Startmenü startet eine andere Kopie: {file}. Einschalten lässt sie diese starten.",
+    "en": "The Start menu shortcut starts another copy: {file}. Switching on makes it start this one."
+  },
+  "toast.own_failed": {
+    "de": "Das ließ sich nicht ändern – {why}",
+    "en": "That could not be changed – {why}"
+  },
+  "gear.backup": {
+    "de": "Einstellungen sichern",
+    "en": "Back up settings"
+  },
+  "gear.backup.text": {
+    "de": "Eine Zip-Datei mit den Einstellungen der Toolbox und aller Programme auf der Liste – für einen anderen PC oder eine andere Kopie. Nur Einstellungen, keine Logs.",
+    "en": "One zip file with the settings of the Toolbox and of every program on the list – for another PC or another copy. Only settings, no logs."
+  },
+  "gear.export": {
+    "de": "Exportieren…",
+    "en": "Export…"
+  },
+  "gear.export.title": {
+    "de": "Einstellungen exportieren",
+    "en": "Export settings"
+  },
+  "gear.export.file": {
+    "de": "Windows Toolbox Einstellungen.zip",
+    "en": "Windows Toolbox settings.zip"
+  },
+  "gear.import": {
+    "de": "Importieren…",
+    "en": "Import…"
+  },
+  "gear.import.title": {
+    "de": "Exportierte Einstellungen wählen",
+    "en": "Choose exported settings"
+  },
+  "gear.import.plan": {
+    "de": "Aus {file} übernehmen:",
+    "en": "Take over from {file}:"
+  },
+  "gear.import.toolbox": {
+    "de": "die Toolbox: Aussehen, Sprache, Schalter – und die Programme ihrer Liste, deren Ordner es hier gibt",
+    "en": "the Toolbox: look, language, switches – and the programs on its list whose folders exist here"
+  },
+  "gear.import.programs": {
+    "de": "die Einstellungen von {names}",
+    "en": "the settings of {names}"
+  },
+  "gear.import.skipped": {
+    "de": "Nicht auf der Liste, ausgelassen: {names}",
+    "en": "Not on the list, left out: {names}"
+  },
+  "gear.import.replace": {
+    "de": "Die jetzigen Einstellungen werden dabei ersetzt. Laufende Programme starten dafür kurz neu.",
+    "en": "The current settings are replaced. Running programs restart for it."
+  },
+  "gear.import.nothing": {
+    "de": "In der Datei ist nichts, was hier passt.",
+    "en": "Nothing in the file fits here."
+  },
+  "gear.import.do": {
+    "de": "Importieren",
+    "en": "Import"
+  },
+  "gear.cancel": {
+    "de": "Abbrechen",
+    "en": "Cancel"
+  },
+  "toast.exported": {
+    "de": "Einstellungen gespeichert: {file} (die Toolbox + {count} Programme)",
+    "en": "Settings saved: {file} (the Toolbox + {count} programs)"
+  },
+  "toast.export_failed": {
+    "de": "Exportieren ging nicht – {why}",
+    "en": "Exporting did not work – {why}"
+  },
+  "toast.imported": {
+    "de": "Einstellungen übernommen ({count} Programme).",
+    "en": "Settings imported ({count} programs)."
+  },
+  "toast.import_failed": {
+    "de": "Importieren ging nicht – {why}",
+    "en": "Importing did not work – {why}"
+  },
+  "gear.remove": {
+    "de": "Aufräumen und deinstallieren",
+    "en": "Clean up and uninstall"
+  },
+  "gear.remove.text": {
+    "de": "Was die Toolbox und ihre Programme in Windows eintragen („Mit Windows starten“, die Verknüpfung im Startmenü), heißt immer „WindowsToolbox“. So findet die Toolbox es wieder – auch die Einträge von Programmen, deren Ordner gelöscht wurde.",
+    "en": "What the Toolbox and its programs put into Windows (“Start with Windows”, the Start menu shortcut) is always named “WindowsToolbox”. That is how the Toolbox finds it again – also the entries of programs whose folder was deleted."
+  },
+  "gear.clean_up": {
+    "de": "Aufräumen…",
+    "en": "Clean up…"
+  },
+  "gear.clean_up.none": {
+    "de": "Nichts aufzuräumen – jeder Eintrag gehört zu einem Programm, das es noch gibt.",
+    "en": "Nothing to clean up – every entry belongs to a program that still exists."
+  },
+  "gear.clean_up.found": {
+    "de": "Diese Einträge gehören zu keinem Programm mehr:",
+    "en": "These entries belong to no program any more:"
+  },
+  "gear.clean_up.do": {
+    "de": "Entfernen",
+    "en": "Remove"
+  },
+  "gear.uninstall": {
+    "de": "Alles deinstallieren…",
+    "en": "Uninstall all…"
+  },
+  "gear.uninstall.text": {
+    "de": "Alles deinstallieren entfernt diese Einträge, beendet alle Programme und die Toolbox – danach kannst du ihre Ordner einfach löschen.",
+    "en": "Uninstall all removes these entries, ends every program and the Toolbox – afterwards you can simply delete their folders."
+  },
+  "gear.uninstall.kept": {
+    "de": "Was ein Programm mit Administratorrechten selbst eingerichtet hat (eine Aufgabe, einen Treiber wie PawnIO), bleibt – sein README sagt, wie man es entfernt.",
+    "en": "What a program set up itself with admin rights (a task, a driver such as PawnIO) stays – its README says how to remove it."
+  },
+  "gear.uninstall.do": {
+    "de": "Deinstallieren und beenden",
+    "en": "Uninstall and quit"
+  },
+  "gear.uninstall.done": {
+    "de": "Alles deinstalliert – in Windows ist nichts mehr von der Toolbox und ihren Programmen eingetragen.\n\nDiese Ordner kannst du jetzt einfach löschen:{folders}",
+    "en": "All uninstalled – nothing of the Toolbox and its programs is entered in Windows any more.\n\nYou can now simply delete these folders:{folders}"
+  },
+  "trace.autostart": {
+    "de": "Mit Windows starten: {name} → {target}",
+    "en": "Start with Windows: {name} → {target}"
+  },
+  "trace.shortcut": {
+    "de": "Startmenü: {path} → {target}",
+    "en": "Start menu: {path} → {target}"
+  },
+  "trace.gone": {
+    "de": "(gibt es nicht mehr)",
+    "en": "(gone)"
+  },
+  "toast.cleaned": {
+    "de": "Entfernt: {count}.",
+    "en": "Removed: {count}."
+  },
+  "toast.clean_failed": {
+    "de": "Nicht entfernt – {why}",
+    "en": "Not removed – {why}"
   }
 }

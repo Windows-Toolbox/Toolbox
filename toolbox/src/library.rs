@@ -26,11 +26,13 @@ pub struct Settings {
     pub zoom: f32,
     /// The folders added with "Add program…", relative to the Toolbox's folder where possible.
     pub programs: Vec<String>,
+    /// The programs that are started again after a crash (section 8) – by id; none by default.
+    pub restart_after_crash: Vec<String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { language: i18n::system_language().to_string(), theme: "dark".into(), zoom: 1.0, programs: vec![] }
+        Self { language: i18n::system_language().to_string(), theme: "dark".into(), zoom: 1.0, programs: vec![], restart_after_crash: vec![] }
     }
 }
 
@@ -62,6 +64,8 @@ pub struct Run {
     pub text: String,
     /// Its pipe closed without `bye` (section 8).
     pub crashed: bool,
+    /// "Restart after a crash" started it three times in ten minutes and gave up.
+    pub gave_up: bool,
 }
 
 /// One program on the list.
@@ -101,7 +105,13 @@ impl Entry {
         self.home.join("data").join("settings.json")
     }
 
-    /// "Start with Windows" belongs to programs that keep running without a window (DESIGN.md 4.4).
+    /// "Restart after a crash" is switched on for it.
+    pub fn restart_after_crash(&self, settings: &Settings) -> bool {
+        self.has_autostart() && settings.restart_after_crash.iter().any(|id| id == self.id())
+    }
+
+    /// "Start with Windows" belongs to programs that keep running without a window (DESIGN.md 4.4) – and so does
+    /// "Restart after a crash".
     pub fn has_autostart(&self) -> bool {
         self.kind == Kind::Kit && self.manifest.background
     }
@@ -238,6 +248,9 @@ pub struct Library {
     /// Updates under way, by program id – the Toolbox's own under `OWN_ID`.
     #[serde(default)]
     pub updating: BTreeMap<String, Updating>,
+    /// What the Toolbox itself has in Windows: "Start with Windows", the Start menu shortcut.
+    #[serde(default)]
+    pub own: crate::system::Own,
 }
 
 /// The Toolbox's own id: its manifest lies in its `dist\`, but it does not list itself.
@@ -495,7 +508,7 @@ mod tests {
 
     #[test]
     fn invalid_settings_get_their_defaults() {
-        let s = Settings { language: "xx".into(), theme: "pink".into(), zoom: 9.0, programs: vec!["a".into()] }.checked();
+        let s = Settings { language: "xx".into(), theme: "pink".into(), zoom: 9.0, programs: vec!["a".into()], ..Default::default() }.checked();
         assert_eq!((s.theme.as_str(), s.zoom, s.programs.len()), ("dark", 1.0, 1));
         assert!(i18n::is_language(&s.language));
     }
