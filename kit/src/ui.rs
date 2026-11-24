@@ -28,21 +28,41 @@ pub const BAD_ON_LIGHT: Color32 = Color32::from_rgb(0xd6, 0x45, 0x45);
 /// The themes a user can choose; `theme` in `hello` is one of them.
 pub const THEMES: &[&str] = &["dark", "light", "system"];
 
+/// How big the text of a window is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Density {
+    /// 12 / 15 / 15 / 19 / 14 (small / body / button / heading / monospace) – the Toolbox, the editors.
+    #[default]
+    Normal,
+    /// 11 / 13 / 13 / 17 / 12 – a window full of values (the Hardware Monitor's detail window). Goes with
+    /// `tab_bar`, `segmented` and `caption`.
+    Compact,
+}
+
 /// Applies the look: the Last Bastion editor's style – egui's own visuals (blue for what is chosen), text sizes
 /// 12 / 15 / 15 / 19 / 14 – in the chosen theme and zoom. Cheap enough to call whenever one of them changes.
 pub fn theme(ctx: &egui::Context, theme: &str, zoom: f32) {
+    theme_with(ctx, theme, zoom, Density::Normal);
+}
+
+/// `theme` with the text sizes of `density`.
+pub fn theme_with(ctx: &egui::Context, theme: &str, zoom: f32, density: Density) {
     ctx.set_theme(match theme {
         "light" => ThemePreference::Light,
         "system" => ThemePreference::System,
         _ => ThemePreference::Dark,
     });
+    let [small, body, heading, mono] = match density {
+        Density::Normal => [12.0, 15.0, 19.0, 14.0],
+        Density::Compact => [11.0, 13.0, 17.0, 12.0],
+    };
     ctx.all_styles_mut(|style| {
         style.text_styles = [
-            (TextStyle::Small, FontId::proportional(12.0)),
-            (TextStyle::Body, FontId::proportional(15.0)),
-            (TextStyle::Button, FontId::proportional(15.0)),
-            (TextStyle::Heading, FontId::proportional(19.0)),
-            (TextStyle::Monospace, FontId::monospace(14.0)),
+            (TextStyle::Small, FontId::proportional(small)),
+            (TextStyle::Body, FontId::proportional(body)),
+            (TextStyle::Button, FontId::proportional(body)),
+            (TextStyle::Heading, FontId::proportional(heading)),
+            (TextStyle::Monospace, FontId::monospace(mono)),
         ]
         .into();
     });
@@ -96,6 +116,107 @@ pub fn section_folded<R>(ui: &mut egui::Ui, title: &str, salt: impl std::hash::H
 /// A button of the bar at the top of a window – the editor's module bar: bigger than the others, blue while chosen.
 pub fn bar_button(ui: &mut egui::Ui, text: impl Into<String>, chosen: bool) -> egui::Response {
     ui.add(egui::Button::new(RichText::new(text).size(16.0)).selected(chosen).min_size(egui::vec2(0.0, 32.0)))
+}
+
+/// Tabs as text in a row, the chosen one with an accent line under it, a thin line under the whole row – quieter
+/// than a row of buttons. Wraps when the window is narrow. Returns the tab clicked, if it is not the chosen one.
+pub fn tab_bar(ui: &mut egui::Ui, labels: &[String], chosen: usize) -> Option<usize> {
+    let mut clicked = None;
+    let accent = accent(ui);
+    let line = ui.visuals().widgets.noninteractive.bg_stroke.color;
+    let row = ui
+        .horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
+            for (i, label) in labels.iter().enumerate() {
+                let on = i == chosen;
+                let font = TextStyle::Button.resolve(ui.style());
+                let galley = ui.painter().layout_no_wrap(label.clone(), font, Color32::PLACEHOLDER);
+                let size = galley.size() + egui::vec2(20.0, 14.0);
+                let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+                let color = if on || resp.hovered() { ui.visuals().strong_text_color() } else { muted(ui) };
+                let at = rect.center() - galley.size() / 2.0 - egui::vec2(0.0, 1.0);
+                ui.painter().galley(at, galley, color);
+                if on {
+                    let y = rect.max.y - 1.0;
+                    ui.painter().line_segment([egui::pos2(rect.min.x + 4.0, y), egui::pos2(rect.max.x - 4.0, y)], egui::Stroke::new(2.0, accent));
+                }
+                if resp.hovered() && !on {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if resp.clicked() && !on {
+                    clicked = Some(i);
+                }
+            }
+        })
+        .response
+        .rect;
+    let full = ui.max_rect();
+    ui.painter().line_segment([egui::pos2(full.min.x, row.max.y), egui::pos2(full.max.x, row.max.y)], egui::Stroke::new(1.0, line));
+    clicked
+}
+
+/// Choices in one frame side by side, the chosen one filled – a switch with several positions ("Graphics card |
+/// Motherboard | CPU"). Each choice: its name and an optional small number after it. `salt` tells two of them on
+/// one page apart. Returns (the choice clicked if it is not the chosen one, the choice under the mouse).
+pub fn segmented(ui: &mut egui::Ui, salt: impl std::hash::Hash + std::fmt::Debug, choices: &[(String, Option<String>)], chosen: usize) -> (Option<usize>, Option<usize>) {
+    let font = TextStyle::Button.resolve(ui.style());
+    let small = FontId::proportional((font.size - 2.0).max(9.0));
+    let galleys: Vec<_> = choices
+        .iter()
+        .map(|(name, badge)| {
+            let name = ui.painter().layout_no_wrap(name.clone(), font.clone(), Color32::PLACEHOLDER);
+            let badge = badge.as_ref().map(|b| ui.painter().layout_no_wrap(b.clone(), small.clone(), Color32::PLACEHOLDER));
+            let width = name.size().x + badge.as_ref().map_or(0.0, |b| b.size().x + 6.0) + 24.0;
+            (name, badge, width)
+        })
+        .collect();
+    let (pad, height) = (2.0, font.size + 12.0);
+    let total = galleys.iter().map(|g| g.2).sum::<f32>() + pad * 2.0;
+    let (frame, _) = ui.allocate_exact_size(egui::vec2(total, height + pad * 2.0), egui::Sense::hover());
+    let visuals = ui.visuals().clone();
+    ui.painter().rect_filled(frame, 5.0, visuals.widgets.inactive.weak_bg_fill);
+    let id = ui.make_persistent_id(salt);
+    let (mut clicked, mut hovered) = (None, None);
+    let mut x = frame.min.x + pad;
+    for (i, (name, badge, width)) in galleys.into_iter().enumerate() {
+        let rect = egui::Rect::from_min_size(egui::pos2(x, frame.min.y + pad), egui::vec2(width, height));
+        x += width;
+        let resp = ui.interact(rect, id.with(i), egui::Sense::click());
+        let on = i == chosen;
+        if on {
+            ui.painter().rect_filled(rect, 4.0, visuals.selection.bg_fill);
+        } else if resp.hovered() {
+            ui.painter().rect_filled(rect, 4.0, visuals.widgets.hovered.weak_bg_fill);
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        let color = if on { visuals.selection.stroke.color } else { visuals.text_color() };
+        let badge_width = badge.as_ref().map_or(0.0, |b| b.size().x + 6.0);
+        let left = rect.center().x - (name.size().x + badge_width) / 2.0;
+        let name_size = name.size();
+        ui.painter().galley(egui::pos2(left, rect.center().y - name_size.y / 2.0), name, color);
+        if let Some(b) = badge {
+            let at = egui::pos2(left + name_size.x + 6.0, rect.center().y - b.size().y / 2.0 + 1.0);
+            ui.painter().galley(at, b, color.gamma_multiply(0.75));
+        }
+        if resp.hovered() {
+            hovered = Some(i);
+        }
+        if resp.clicked() && !on {
+            clicked = Some(i);
+        }
+    }
+    (clicked, hovered)
+}
+
+/// A column heading over a list or table: small capitals, a little spaced, muted.
+pub fn caption(ui: &egui::Ui, text: &str) -> RichText {
+    RichText::new(text.to_uppercase()).size(11.0).extra_letter_spacing(0.6).color(muted(ui))
+}
+
+/// `caption` laid out for a painter (a list drawn by hand).
+pub fn caption_galley(ui: &egui::Ui, text: &str) -> std::sync::Arc<egui::Galley> {
+    let format = egui::TextFormat { font_id: FontId::proportional(11.0), color: muted(ui), extra_letter_spacing: 0.6, ..Default::default() };
+    ui.painter().layout_job(egui::text::LayoutJob::single_section(text.to_uppercase(), format))
 }
 
 pub fn health_color(ui: &egui::Ui, h: Health) -> Color32 {
