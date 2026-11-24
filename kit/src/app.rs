@@ -229,6 +229,9 @@ struct Inner<P: Program> {
     slept: u64,
     /// Wakes the thread of that icon.
     waker: Option<tray::Waker>,
+    /// The worker waits with the workers off (`sleep`, `wait_running`) or has returned: its work is put away. What
+    /// `finish` waits for.
+    resting: bool,
 }
 
 /// The running program, as its worker sees it.
@@ -272,9 +275,14 @@ impl<P: Program> Runtime<P> {
     /// Blocks until the workers are switched on – what a worker does while the program only serves its page.
     pub fn wait_running(&self) {
         let mut g = self.lock();
+        if !g.running {
+            g.resting = true;
+            self.inner.1.notify_all();
+        }
         while !g.running {
             g = self.inner.1.wait(g).unwrap_or_else(|e| e.into_inner());
         }
+        g.resting = false;
     }
 
     /// What a worker does between two rounds of its work: waits – without using the CPU – until the time is over,
@@ -284,6 +292,10 @@ impl<P: Program> Runtime<P> {
         let until = Instant::now() + time;
         let mut g = self.lock();
         let running = g.running;
+        if !running {
+            g.resting = true;
+            self.inner.1.notify_all();
+        }
         // Compared with the end of the last sleep, not with now: news that came during the work (while nobody
         // waited) would else wait a whole round (found 2026-11-24: privacy mode from the window took a second).
         while g.nudges == g.slept && g.running == running {
@@ -291,6 +303,7 @@ impl<P: Program> Runtime<P> {
             g = self.inner.1.wait_timeout(g, left).unwrap_or_else(|e| e.into_inner()).0;
         }
         g.slept = g.nudges;
+        g.resting = false;
     }
 
     /// Wakes the worker from `sleep` at once – another thread of the program has news for it (e.g. its own window
@@ -443,7 +456,9 @@ fn own_icon<P: Program>(rt: Runtime<P>) {
                     return items;
                 }
                 tray::Event::Chosen(MENU_SETTINGS) => settings::<P>(&name),
-                tray::Event::Chosen(MENU_QUIT) => finish(&mut rt.lock()),
+                tray::Event::Chosen(MENU_QUIT) => finish(&rt, rt.lock()),
+                // Windows shuts down or logs off: like Quit, so that the worker saves what it holds.
+                tray::Event::EndSession => finish(&rt, rt.lock()),
                 tray::Event::Chosen(n) => {
                     if let Some(action) = actions.get((n - MENU_PROGRAM) as usize) {
                         let mut g = rt.lock();
@@ -482,7 +497,24 @@ fn announce(id: &'static str) {
     });
 }
 
-fn finish<P: Program>(g: &mut Inner<P>) -> ! {
+/// How long `finish` waits for the worker to put its work away.
+const PUT_AWAY: Duration = Duration::from_secs(3);
+
+fn finish<P: Program>(rt: &Runtime<P>, mut g: MutexGuard<'_, Inner<P>>) -> ! {
+    // The workers off, and a moment for the worker to put its work away (the Hardware Monitor saves its logs when
+    // its work ends) – without it, Quit and a Windows shutdown cut that off (found 2026-11-24).
+    if g.running {
+        g.running = false;
+        rt.inner.1.notify_all();
+    }
+    let until = Instant::now() + PUT_AWAY;
+    while !g.resting {
+        let Some(left) = until.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()) else {
+            log("the worker did not end its work in time");
+            break;
+        };
+        g = rt.inner.1.wait_timeout(g, left).unwrap_or_else(|e| e.into_inner()).0;
+    }
     // Whatever happens below, the process ends: a Toolbox that does not read must not keep it alive.
     std::thread::spawn(|| {
         std::thread::sleep(Duration::from_secs(2));
@@ -533,7 +565,7 @@ pub fn run<P: Program>(program: P, worker: impl FnOnce(Runtime<P>) + Send + 'sta
     i18n::set_language(&look.language);
     let mut program = program;
     program.applied(&settings.value);
-    let inner = Inner { program, settings, look, running: workers, clients: vec![], save_due: None, last_status: None, last_page: None, last_tray: None, own_icon: false, nudges: 0, slept: 0, waker: None };
+    let inner = Inner { program, settings, look, running: workers, clients: vec![], save_due: None, last_status: None, last_page: None, last_tray: None, own_icon: false, nudges: 0, slept: 0, waker: None, resting: false };
     let rt = Runtime { inner: Arc::new((Mutex::new(inner), Condvar::new())) };
     // What Windows remembers by path follows a moved folder (section 2), and what an update put aside is removed.
     std::thread::spawn(move || {
@@ -551,7 +583,11 @@ pub fn run<P: Program>(program: P, worker: impl FnOnce(Runtime<P>) + Send + 'sta
     }
     {
         let rt = rt.clone();
-        std::thread::spawn(move || worker(rt));
+        std::thread::spawn(move || {
+            worker(rt.clone());
+            rt.lock().resting = true;
+            rt.inner.1.notify_all();
+        });
     }
     // Housekeeping: delayed saving, and ending when idle with the workers off.
     {
@@ -586,7 +622,7 @@ pub fn run<P: Program>(program: P, worker: impl FnOnce(Runtime<P>) + Send + 'sta
                 if g.running || g.clients.iter().any(|c| c.want.contains(&Want::Page)) {
                     idle_since = Instant::now();
                 } else if idle_since.elapsed() > IDLE_EXIT {
-                    finish(&mut g);
+                    finish(&rt, g);
                 }
             }
         });
@@ -674,7 +710,7 @@ fn serve<P: Program>(rt: Runtime<P>, conn: Arc<Conn>) {
                 push(&mut g, false, None);
             }
             Command::Show => g.program.show(),
-            Command::Quit => finish(&mut g),
+            Command::Quit => finish(&rt, g),
             Command::Hello(h) => greet(&mut g, &conn, h),
             Command::Unknown => {}
         }

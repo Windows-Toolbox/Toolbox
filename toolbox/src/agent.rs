@@ -1366,6 +1366,9 @@ pub fn run(open: bool) {
         let mut live_shown = 0;
         move |tray, event| {
             match event {
+                // Windows ends the session: every program gets this message itself and saves; the Toolbox holds
+                // nothing unsaved.
+                Event::EndSession => {}
                 Event::Wake => {
                     let mut a = lock(&shared);
                     if let Some(all) = a.quit.take() {

@@ -156,6 +156,8 @@ fn the_page_of_a_stopped_program() {
     until(&c, |s| matches!(s, State::Bye).then_some(()));
     assert_eq!(c.read_line(), None, "after bye the pipe closes");
     demo.wait_exit(Duration::from_secs(3));
+    // Quit with the workers on waited for the worker to end its work (it saves there).
+    assert!(demo.data.join("work_ended.txt").exists(), "Quit cut the worker off");
 }
 
 /// Language and look arrive with `hello`: the page comes in that language, a later `hello` switches it for every

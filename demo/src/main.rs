@@ -107,6 +107,9 @@ fn main() {
             }
             rt.with(|d, _| d.running = false);
             rt.changed();
+            // What a program saves when its work ends – Quit waits for it (tests/chain.rs).
+            let count = rt.with(|d, _| d.count);
+            let _ = std::fs::write(app::data_dir().join("work_ended.txt"), count.to_string());
         }
     });
 }

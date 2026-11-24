@@ -24,6 +24,9 @@ pub enum Event {
     Chosen(u32),
     /// `Waker::wake` was called from another thread – or Explorer restarted and the icons have to be set again.
     Wake,
+    /// Windows ends the session (shutdown, restart, log off) – the process ends right after; what it holds must be
+    /// saved now.
+    EndSession,
 }
 
 pub enum Item {
@@ -277,6 +280,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_WAKE => {
             dispatch(Event::Wake);
+            0
+        }
+        // Yes, the session may end – nothing here asks the user.
+        WM_QUERYENDSESSION => 1,
+        WM_ENDSESSION => {
+            if wp != 0 {
+                dispatch(Event::EndSession);
+            }
             0
         }
         m if m != 0 && m == TASKBAR_CREATED.load(Ordering::Relaxed) => {
