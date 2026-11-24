@@ -225,6 +225,8 @@ struct Inner<P: Program> {
     own_icon: bool,
     /// Counts what should wake a worker from `Runtime::sleep`: a `set`, an action, start and stop.
     nudges: u64,
+    /// `nudges` as the last `sleep` ended – one that came while the worker was busy ends the next sleep at once.
+    slept: u64,
     /// Wakes the thread of that icon.
     waker: Option<tray::Waker>,
 }
@@ -281,11 +283,22 @@ impl<P: Program> Runtime<P> {
     pub fn sleep(&self, time: Duration) {
         let until = Instant::now() + time;
         let mut g = self.lock();
-        let (nudges, running) = (g.nudges, g.running);
-        while g.nudges == nudges && g.running == running {
-            let Some(left) = until.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()) else { return };
+        let running = g.running;
+        // Compared with the end of the last sleep, not with now: news that came during the work (while nobody
+        // waited) would else wait a whole round (found 2026-11-24: privacy mode from the window took a second).
+        while g.nudges == g.slept && g.running == running {
+            let Some(left) = until.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()) else { break };
             g = self.inner.1.wait_timeout(g, left).unwrap_or_else(|e| e.into_inner()).0;
         }
+        g.slept = g.nudges;
+    }
+
+    /// Wakes the worker from `sleep` at once – another thread of the program has news for it (e.g. its own window
+    /// wants other values).
+    pub fn nudge(&self) {
+        let mut g = self.lock();
+        g.nudges += 1;
+        self.inner.1.notify_all();
     }
 
     /// Access to the program and its settings.
@@ -295,7 +308,8 @@ impl<P: Program> Runtime<P> {
         f(&mut g.program, &g.settings.value)
     }
 
-    /// The program changes a setting itself (not through the page): saved and shown like every other change.
+    /// The program changes a setting itself (not through the page): saved and shown like every other change – and
+    /// the worker wakes at once, as after a change on the page.
     pub fn update(&self, f: impl FnOnce(&mut P::Settings)) {
         let mut g = self.lock();
         f(&mut g.settings.value);
@@ -303,6 +317,8 @@ impl<P: Program> Runtime<P> {
         g2.program.applied(&g2.settings.value);
         g.save_due = Some(Instant::now() + SAVE_DELAY);
         push(&mut g, false, None);
+        g.nudges += 1;
+        self.inner.1.notify_all();
     }
 
     /// The Toolbox's language and look as last heard.
@@ -517,7 +533,7 @@ pub fn run<P: Program>(program: P, worker: impl FnOnce(Runtime<P>) + Send + 'sta
     i18n::set_language(&look.language);
     let mut program = program;
     program.applied(&settings.value);
-    let inner = Inner { program, settings, look, running: workers, clients: vec![], save_due: None, last_status: None, last_page: None, last_tray: None, own_icon: false, nudges: 0, waker: None };
+    let inner = Inner { program, settings, look, running: workers, clients: vec![], save_due: None, last_status: None, last_page: None, last_tray: None, own_icon: false, nudges: 0, slept: 0, waker: None };
     let rt = Runtime { inner: Arc::new((Mutex::new(inner), Condvar::new())) };
     // What Windows remembers by path follows a moved folder (section 2), and what an update put aside is removed.
     std::thread::spawn(move || {

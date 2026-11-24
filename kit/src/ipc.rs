@@ -239,11 +239,18 @@ impl Server {
     pub fn accept(&self) -> io::Result<Arc<Conn>> {
         let mut next = self.next.lock().unwrap_or_else(|e| e.into_inner());
         let h = *next;
-        let r = overlapped(h, |ov| unsafe { ConnectNamedPipe(h, ov) });
-        match r {
-            Ok(_) => {}
-            Err(e) if e.raw_os_error() == Some(ERROR_PIPE_CONNECTED as i32) => {}
-            Err(e) => return Err(e),
+        loop {
+            match overlapped(h, |ov| unsafe { ConnectNamedPipe(h, ov) }) {
+                Ok(_) => break,
+                Err(e) if e.raw_os_error() == Some(ERROR_PIPE_CONNECTED as i32) => break,
+                // A client came and went before we looked (a program killed while it connected): the instance
+                // is still taken by that dead connection. Without freeing it, every further attempt fails the
+                // same way – the Toolbox stopped taking connections for good (found 2026-11-24).
+                Err(e) if e.raw_os_error() == Some(ERROR_NO_DATA as i32) || e.raw_os_error() == Some(ERROR_BROKEN_PIPE as i32) => {
+                    unsafe { DisconnectNamedPipe(h) };
+                }
+                Err(e) => return Err(e),
+            }
         }
         // The new waiting instance exists before the connected one is handed out.
         *next = create_instance(&self.name, false, &self.sd)?;
@@ -298,6 +305,28 @@ pub fn exists(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A client that comes and goes before the server looks must not stop the server for good.
+    #[test]
+    fn a_client_gone_before_accept_does_not_block_the_next() {
+        let id = format!("kit-test-gone-{}", std::process::id());
+        let server = Arc::new(Server::bind(&id).unwrap());
+        drop(connect(&id).unwrap());
+        let s = server.clone();
+        let accepted = std::thread::spawn(move || {
+            // Either the dead one first (reading ends at once) or straight the living one.
+            loop {
+                let c = s.accept().expect("accept goes on");
+                if let Some(line) = c.read_line() {
+                    return line;
+                }
+            }
+        });
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let client = connect(&id).unwrap();
+        client.send_line("hello").unwrap();
+        assert_eq!(accepted.join().unwrap(), "hello");
+    }
 
     #[test]
     fn lines_both_ways_and_single_instance() {
