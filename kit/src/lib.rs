@@ -27,6 +27,8 @@ pub mod proto;
 #[cfg(feature = "runtime")]
 pub mod settings;
 #[cfg(feature = "runtime")]
+pub mod setup;
+#[cfg(feature = "runtime")]
 pub mod tray;
 #[cfg(feature = "runtime")]
 pub mod ui;

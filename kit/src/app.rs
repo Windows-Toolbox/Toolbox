@@ -58,6 +58,11 @@ pub fn init(meta: &Meta) {
     let aumid = ipc::wide(&format!("WindowsToolbox.{}", meta.id));
     unsafe { windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(aumid.as_ptr()) };
     let _ = DATA_DIR.set(find_data_dir(meta));
+    // Started by kit::setup with admin rights: do the job and end – nothing else of the program runs.
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).is_some_and(|a| a == crate::setup::HELPER) {
+        crate::setup::helper(Path::new(args.get(2).map_or("", String::as_str)));
+    }
     std::panic::set_hook(Box::new(|info| {
         log(&format!("PANIC: {info}"));
         // A program whose thread died would look alive but do nothing. Ending makes the crash visible: the pipe

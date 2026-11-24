@@ -409,9 +409,10 @@ they build on each other and none has to exist on day one:
 | **2. Canvas block** | the program sends drawing commands (lines, rectangles, text, colours) and receives mouse events for a rectangle on the page | one-off custom widgets without teaching the Toolbox anything: the fan-curve editor, the power chart | written once in the kit; the program then draws freely, but through messages (fine for a chart, not for a game) |
 | **3. Embedded window** | a block that reserves an area; the program's own egui window is placed *inside* the Toolbox window there (a Win32 child window) | anything egui can do, at full speed | fiddly: focus, resizing, DPI. **(verify)** before relying on it |
 
-Plan: add step-1 blocks whenever a page needs one (the `list` block for Screen Zones was the first), build the
-canvas when the fan curves are ported (M4, section 11). Until then – and for anything that fits none of these – a
-program opens **its own window**, as the Hardware Monitor's detail window does. So the limit never blocks a
+Plan: add step-1 blocks whenever a page needs one (the `list` block for Screen Zones was the first). The canvas
+is **not** built for now (decided 2026-11-24): the fan-curve editor and the power chart stay in the Hardware
+Monitor's detail window, which remains a window of its own and draws them itself in egui. For anything that fits no
+block, a program opens **its own window**, as the Hardware Monitor's detail window does. So the limit never blocks a
 feature; it only decides whether something appears inside the Toolbox or beside it.
 
 Considered and rejected:
@@ -678,24 +679,39 @@ the Toolbox downloads itself (updates) and programs you build yourself are not a
 What remains are the things a *program* needs from Windows, and they belong to that program:
 
 ```rust
-// hardware-monitor – declared once, runs from "Set up" on its page (in the Toolbox or in its own window)
-kit::setup::steps![
-    Winget   { id: "namazso.PawnIO" },                                  // needs admin
-    Download { name: "LibreHardwareMonitor", version: "0.9.6", url: "…", sha256: "…", into: Protected("lhm") },
-    Copy     { file: "LhmBridge.exe", into: Protected("") },            // needs admin
-    Task     { run: Protected("LhmBridge.exe"), elevated: true },       // needs admin; started on demand, not at logon
+// hardware-monitor (src/bridge.rs) – the steps of "Set up" on its page, in this order
+vec![
+    Step::Winget   { id: "namazso.PawnIO", name: "PawnIO", service: "PawnIO" },  // done: the service exists
+    Step::Download { name: "LibreHardwareMonitor", version, url, sha256, into: "lhm" },  // from lhm.json
+    Step::Copy     { file: "LhmBridge.exe", into: "" },          // from next to the exe; done: same bytes
+    Step::Task     { run: "LhmBridge.exe" },                     // \WindowsToolbox\hardware_monitor, no trigger
 ]
 ```
 
-`Protected(…)` is the folder `C:\Program Files\WindowsToolbox\<id>\`, which only admins can write to. Everything
-that later runs with admin rights without a prompt lies there and nowhere else (section 10 says why). The
-checksum of a download into it is checked on the copy inside the protected folder, by the elevated helper.
+`into` and `run` are places in the **protected folder** `C:\Program Files\WindowsToolbox\<id>\`, which only admins can
+write to. Everything that later runs with admin rights without a prompt lies there and nowhere else (section 10
+says why).
 
-Each step checks first whether it is already done. If any pending step needs admin
-rights, Windows asks **once** and those steps run in a short-lived elevated helper; the program itself stays
-without admin rights. "Set up" in the Toolbox just asks the program to do this and shows its progress; a program
-started alone with missing requirements shows the same button itself. Programs that need nothing (Cube Game,
-Discord Plus, scripts) have no such button.
+Each step checks first whether it is already done – without admin rights: the service through the service manager,
+a download by the checksum stamp `.sha256` the helper leaves in its folder, a copy by its bytes, the task by
+`schtasks /query /xml` (its command and `HighestAvailable`). A step can also be *outdated* (another LHM version,
+a newer bridge): "Set up" replaces it. What is pending runs in two parts:
+
+- **Without admin rights**, in the program: the downloads, into a temporary folder, each checked by its SHA-256.
+- **With admin rights, one prompt**: the program starts its own exe again (`ShellExecuteEx` with `runas`) with
+  the internal argument `--kit-setup <job file>`, which `app::init` takes before anything else. That short-lived
+  helper does the job's list and ends: winget, unpacking (the checksum checked once more on exactly the bytes it
+  unpacks – the zip lay in a folder the user can write to), copying, registering the task from an XML file
+  (`schtasks /create /xml`, as the user whose SID the program passed, `HighestAvailable`, no trigger, no time
+  limit, never twice). Before it replaces or removes something in the protected folder it ends every process that
+  runs from there (a running bridge locks its files). It writes only below `C:\Program Files\WindowsToolbox\` and
+  registers or removes only tasks below `\WindowsToolbox\` – whatever the job file says – and leaves its answer next
+  to the job file for the program to read.
+
+"Set up" in the Toolbox just asks the program to do this and shows the result on its page; a program started alone
+with missing requirements shows the same button itself. Programs that need nothing (Cube Game, Discord Plus,
+scripts) have no such button. Built in M4, step 1 (2026-11-24), and tested by hand: one prompt, every step green
+afterwards, the bridge started by the task with admin rights, Uninstall with one prompt.
 
 ### Building (developer PC)
 
@@ -765,17 +781,21 @@ can find them: Gear → Clean up lists the entries whose program no longer exist
 Before it looks, what names an exe that is gone but belongs to a program on the list (a moved folder) is pointed at
 the new place – a moved program is not "left over".
 
-Built in M6 (2026-11-22) for what exists today: the Run entries `WindowsToolbox.<id>` and the Start menu shortcut.
-Tasks and the protected folder join when `kit::setup` creates them (M4) – until then nothing of ours has those
-names. The Python monitor's task is called `HardwareMonitor` (without the prefix) and is not found; it leaves with
-the Python monitor.
+Built in M6 (2026-11-22) for the Run entries `WindowsToolbox.<id>` and the Start menu shortcut; tasks and
+protected folders joined in M4 (2026-11-24): `kit::setup::installed()` lists the ids that have a task below
+`\WindowsToolbox\` or a folder in `C:\Program Files\WindowsToolbox\`, and one whose id is not on the list is left
+over. All of them are removed together, through the same helper as Uninstall – one prompt for all. The Python
+monitor's task is called `HardwareMonitor` (without the prefix) and is not found; it leaves with the Python
+monitor.
 
 **Uninstall all**, built the same way: the gear lists every trace (all `WindowsToolbox.<id>` entries, the Start
-menu shortcut) and says that what a program set up with admin rights itself stays; "Uninstall and quit" removes
-them, ends every program and the Toolbox, then a message box lists the folders that can now simply be deleted
+menu shortcut, every program's task and protected folder) and says that Windows asks once for the ones set up with
+admin rights and that a driver such as PawnIO stays; "Uninstall and quit" removes them, ends every program and the
+Toolbox, then a message box lists the folders that can now simply be deleted
 (the Toolbox's and every program's outside it) and the Toolbox's folder opens. Deleting them is left to the user –
 a folder may be a developer's git clone, and an exe cannot delete the folder it runs from. A per-program
-**Uninstall** arrives with `kit::setup` (M4) – today only the Hardware Monitor sets anything up.
+**Uninstall** comes from `kit::setup::remove` (M4): task and protected folder; a winget package only if the program
+asks for it (other programs may use the same driver).
 
 ---
 
@@ -900,13 +920,30 @@ Python with its own runtime, started with admin rights through a task. The port,
 - the monitor without admin rights; status line and live displays through the Toolbox's tray (section 6 – the
   Toolbox shows live displays already);
 - the detail window in Rust, its content still a data file (`detail_window.json`);
-- the canvas block (4.5, step 2) for fan curves and the power chart;
+- fan curves and the power chart drawn by the detail window itself (no canvas block – 4.5, decided 2026-11-24);
 - **Set up / Uninstall** on a program's page with `kit::setup` (PawnIO, LibreHardwareMonitor, the bridge, the
   task) – section 9;
 - an **Open** entry for a program's own window in the tray menu;
 - `kit::process::run_task(name)` and `efficiency_mode()`.
 
 Then Python leaves the Hardware Monitor's repo too.
+
+Four steps, each tested by hand before it is committed; the Python monitor runs until the last one
+(plan agreed 2026-11-24):
+
+1. **The bridge and `kit::setup`** – done 2026-11-24. `bridge\LhmBridge.cs` (C# 5, built by `build.ps1` with the
+   csc.exe of Windows against the LHM of `lhm.json`): `open` (CPU and GPU first, the rest in the background while
+   reading goes on), `read`, `set_fan`, `release`, `drives` (DiskInfoToolkit, raw facts only), every fan back and
+   LHM closed when the connection ends, gone after a minute without one. Set up / Test / Uninstall as a preview
+   section on the page; Clean up and Uninstall all know tasks and protected folders. Measured on the developer
+   PC: connected 0.1 s after the start, CPU and GPU open in 0.7 s, one read 90 ms.
+2. **The monitor without a window**: temperatures through the bridge (Nvidia through `nvml.dll`), status line and
+   live displays, rates, efficiency mode, privacy mode, fan curves applied, power estimate and log, the smart plug
+   (Anker SOLIX Smart Plug Gen 2: Modbus TCP, port 502, found by mDNS `_anker_power._udp.local`) – the same
+   settings file, so curves and the power log carry over.
+3. **The detail window** in egui, its content in `detail_window.json`; the fans tab first as it is, then rethought
+   with the user.
+4. **Python out**: `python\` deleted, the old task `HardwareMonitor` removed by "Set up", README, release 3.0.0.
 
 **M6 – the rest of the frame** (built 2026-11-22, Toolbox v2.1.0):
 
@@ -1251,14 +1288,14 @@ they are built and written back here.
 | `ipc` | `pipe_name(id)` · `Server::bind(id)` (`AlreadyExists` = runs already) · `Server::accept()` · `connect(id)` · `connect_wait(id, timeout)` · `exists(id)` · `Conn::{send, send_line, read, read_line, close}` · `TOOLBOX` · `sandbox()` |
 | `ui` | `theme(ctx, theme, zoom)` · `THEMES` · `PageView::show(ui, &Page) -> Vec<Command>` · `Toast::{show, ui}` · `link_target(&response, target)` / `hovered_target(ctx)` – the bottom bar · `viewport(title)` – how every window starts out · `use_program_icon()` · `no_window(title, error)` – the message when OpenGL is missing · `heading(ui, text)` · `section(ui, title, salt, add)` · `hint(ui, text)` · `bar_button(ui, text, chosen)` – the editor's building blocks · `ACCENT`, `GOOD`, `WARN`, `BAD`, `accent()`, `good()`, `warn()`, `bad()`, `muted()`, `health_color()` |
 | `tray` | `create(handler) -> Waker` · `run_loop()` · `Tray::{set_icon(uid, Icon, tip), remove_icon, quit}` – setting what an icon shows already costs nothing · `Icon::{Program, Text(text, color)}` · `program_icon(size)` · `text_icon(text, color)` · `Event`, `Item` · `forget(uid)` – removes an icon at once from any thread, for a process about to end (otherwise it stays until the mouse passes over it) |
-| `process` | `Job::{create, open, spawn, active_processes, terminate}` · `job_name(id)` · `spawn(exe, args)` – without a console window · `open(target)` – a file, a folder, an address · `copy_text(text)` – the clipboard, for a page's "Copy" button · `wait_exit(pid, timeout)` · `running(exe) -> pids` · `quote(arg)`. Still to come: `run_task(name)`, `efficiency_mode()` (section 11) |
+| `process` | `Job::{create, open, spawn, active_processes, terminate}` · `job_name(id)` · `spawn(exe, args)` – without a console window · `open(target)` – a file, a folder, an address · `copy_text(text)` – the clipboard, for a page's "Copy" button · `wait_exit(pid, timeout)` · `running(exe) -> pids` · `quote(arg)` · `run_task(name)` – a scheduled task, through `schtasks /run` (M4). Still to come: `efficiency_mode()` (section 11) |
 | `i18n` | `t!("id")`, `t!("id", name = value)` · `texts!()` – loads the program's `assets\i18n.json` · `LANGUAGES` · `set_language(lang)` · `language()` · `system_language()` · `check_ids(crate_dir)` for the test |
 | `manifest` | `Manifest::read(folder)` (`dist\program.json`, else `program.json`) · `Manifest::find(folder)` – the folder or one level below it · `Manifest::kind() -> Script/Kit/Exe` (a manifest without `run` and `exe` is refused) · `Text::{get(lang), key()}` · `ScriptOption` |
 | `build` | `build::manifest()` for `build.rs` (15.4): `program.json`, the facts for `meta!()`, and the resource with icon, name and version – written by hand as a `.res` file, so no resource compiler has to be installed |
 | `autostart` | `read(id) -> Entry { state, target }` · `state(id) -> Off/On/DisabledByWindows` – also reads Windows' "switched off" note · `set(id, Some(exe) / None)` – `Some` switches a disabled entry back on · `repair(id, exe)` – re-points an entry whose exe no longer exists (moved folder), leaves one whose exe exists alone · `all()` – the ids of every `WindowsToolbox.<id>` entry (Clean up) · `ARGUMENT` (`--autostart`: started by Windows, no window) · direct registry calls in HKCU, no PowerShell |
 | `http` | `get(url, headers, limit)` · `post_form(url, fields, limit)` · `Response::{status, body, ok(), text()}` · `encode(s)` – through WinHTTP (part of Windows: no crate, the PC's proxy and certificates); `https://` only, fixed user agent `windows-toolbox`, nothing about the user or the PC sent along |
 | `update` | `latest(repository, id) -> Option<Release { version, zip: Option, signature: Option }>` – a release without our two files still tells its version · `download(release, key)` – checks the signature before anything else · `install(zip, folder, id, newer_than) -> Manifest` – the manifest inside the signed zip must name `id` and a newer version; names outside the folder or in `data\` refused; unpacked aside first, files in use put aside, a failed swap undone · `clean_up(folder)` – what an update put aside · `developer_copy(home)` – own builds are not updated · `verify`, `compare_versions`, `base64_encode/decode`, `zip::{write, read}` (stored + deflate, `miniz_oxide`) · `KEY` |
-| `setup` *(still to come)* | `steps![…]` · `Step::{Winget, Download, Copy, Task}` · `pending() -> Vec<Step>` · `run(steps)` |
+| `setup` | `Step::{Winget { id, name, service }, Download { name, version, url, sha256, into }, Copy { file, into }, Task { run }}` · `Step::name()` · `done(id, &step) -> Done::{Yes, No, Outdated}` · `pending(id, &steps)` · `present(id)` – task or protected folder there · `run(id, &steps, description)` – downloads, then one admin prompt · `remove(id, &steps, with_winget)` · `remove_all(&ids)` – Clean up / Uninstall all · `installed() -> ids` · `protected_root()`, `protected_dir(id)`, `task_name(id)` · `service_exists(name)` · `HELPER` (`--kit-setup`) · `ROOT_VARIABLE` for tests (section 9) |
 
 **Crates used in M0** (looked up 2026-11-15): `eframe` / `egui` 0.37.0 (features in section 7),
 `egui_system_font_provider` 0.37.0 (through eframe's `system_fonts`), `windows-sys` 0.61.2, `serde` 1.0.229,

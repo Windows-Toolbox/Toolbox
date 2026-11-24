@@ -10,7 +10,7 @@ description = "What the Windows Toolbox and its programs share: settings, pages,
 # What a program links in. A build script asks for `build` alone (default-features = false), so that egui and
 # the Windows bindings are not compiled a second time just to write a manifest.
 default = ["runtime"]
-runtime = ["dep:egui", "dep:serde", "dep:windows-sys", "dep:ed25519-dalek", "dep:miniz_oxide"]
+runtime = ["dep:egui", "dep:serde", "dep:windows-sys", "dep:ed25519-dalek", "dep:miniz_oxide", "dep:sha2"]
 build = []
 
 [dependencies]
@@ -19,6 +19,7 @@ serde = { workspace = true, optional = true }
 egui = { workspace = true, optional = true }
 ed25519-dalek = { workspace = true, optional = true }
 miniz_oxide = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 windows-sys = { workspace = true, optional = true, features = [
     "Win32_Foundation",
     "Win32_Globalization",
@@ -37,6 +38,7 @@ windows-sys = { workspace = true, optional = true, features = [
     "Win32_System_Memory",
     "Win32_System_Pipes",
     "Win32_System_Registry",
+    "Win32_System_Services",
     "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_System_Threading",

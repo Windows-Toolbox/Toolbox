@@ -22,6 +22,8 @@ windows-sys = "0.61.2"
 ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast"] }
 getrandom = "0.4.3"
 miniz_oxide = "0.9.1"
+# Checksums of what kit::setup downloads (added 2026-11-24 – ed25519-dalek brings the same version along anyway).
+sha2 = { version = "0.11.1", default-features = false }
 
 [profile.release]
 lto = true

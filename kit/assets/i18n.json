@@ -66,5 +66,33 @@
   "kit.list.choose": {
     "de": "Links einen Eintrag wählen.",
     "en": "Choose an entry on the left."
+  },
+  "kit.setup.task": {
+    "de": "Aufgabe in der Aufgabenplanung",
+    "en": "Task in Task Scheduler"
+  },
+  "kit.setup.download_failed": {
+    "de": "{name} konnte nicht geladen werden: {why}",
+    "en": "{name} could not be downloaded: {why}"
+  },
+  "kit.setup.checksum": {
+    "de": "Die Prüfsumme von {name} stimmt nicht – abgebrochen, nichts wurde geändert.",
+    "en": "The checksum of {name} does not match – stopped, nothing was changed."
+  },
+  "kit.setup.cancelled": {
+    "de": "Abgebrochen: Windows hat keine Admin-Rechte bekommen.",
+    "en": "Cancelled: Windows was not given admin rights."
+  },
+  "kit.setup.no_answer": {
+    "de": "Der Teil mit Admin-Rechten hat keine Antwort hinterlassen.",
+    "en": "The part with admin rights left no answer."
+  },
+  "kit.setup.winget_failed": {
+    "de": "winget hat {name} nicht installiert oder entfernt.",
+    "en": "winget did not install or remove {name}."
+  },
+  "kit.setup.no_winget": {
+    "de": "winget fehlt auf diesem PC ({why}). Es kommt mit dem „App-Installer“ aus dem Microsoft Store.",
+    "en": "winget is missing on this PC ({why}). It comes with the “App Installer” from the Microsoft Store."
   }
 }

@@ -525,8 +525,8 @@
     "en": "Uninstall all removes these entries, ends every program and the Toolbox – afterwards you can simply delete their folders."
   },
   "gear.uninstall.kept": {
-    "de": "Was ein Programm mit Administratorrechten selbst eingerichtet hat (eine Aufgabe, einen Treiber wie PawnIO), bleibt – sein README sagt, wie man es entfernt.",
-    "en": "What a program set up itself with admin rights (a task, a driver such as PawnIO) stays – its README says how to remove it."
+    "de": "Für Aufgaben und Ordner, die ein Programm mit Admin-Rechten eingerichtet hat, fragt Windows einmal nach Admin-Rechten. Ein Treiber wie PawnIO bleibt installiert – andere Programme nutzen ihn vielleicht auch (entfernen: winget uninstall namazso.PawnIO).",
+    "en": "For tasks and folders a program set up with admin rights, Windows asks for admin rights once. A driver such as PawnIO stays installed – other programs may use it too (to remove it: winget uninstall namazso.PawnIO)."
   },
   "gear.uninstall.do": {
     "de": "Deinstallieren und beenden",
@@ -547,6 +547,10 @@
   "trace.shortcut": {
     "de": "Startmenü: {path} → {target}",
     "en": "Start menu: {path} → {target}"
+  },
+  "trace.setup": {
+    "de": "{name}: Aufgabe {task} und Ordner {folder} (Admin-Rechte nötig)",
+    "en": "{name}: task {task} and folder {folder} (needs admin rights)"
   },
   "trace.gone": {
     "de": "(gibt es nicht mehr)",

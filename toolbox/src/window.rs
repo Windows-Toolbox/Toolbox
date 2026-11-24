@@ -915,6 +915,10 @@ impl App {
                         t!("trace.autostart", name = name, target = target(trace))
                     }
                     Trace::Shortcut { path, .. } => t!("trace.shortcut", path = path.display(), target = target(trace)),
+                    Trace::Setup { id } => {
+                        let name = library.programs.iter().find(|e| e.id() == id).map(|e| e.manifest.name.get(&language).to_string());
+                        t!("trace.setup", name = name.unwrap_or_else(|| id.clone()), task = kit::setup::task_name(id), folder = kit::setup::protected_dir(id).display())
+                    }
                 };
                 ui.label(format!("• {line}"));
             }

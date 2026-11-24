@@ -722,22 +722,27 @@ fn repair_all(a: &Agent) {
 fn find_traces(shared: &Shared, everything: bool) {
     let shared = shared.clone();
     std::thread::spawn(move || {
-        repair_all(&lock(&shared));
-        let traces = system::traces(everything);
+        let listed = {
+            let a = lock(&shared);
+            repair_all(&a);
+            listed_ids(&a)
+        };
+        let traces = system::traces(everything, &listed);
         lock(&shared).tell(&Tell::Traces { everything, traces });
     });
 }
 
+/// The ids of the programs on the list – a setup of one of them is not "left over".
+fn listed_ids(a: &Agent) -> Vec<String> {
+    a.programs.iter().map(|e| e.id().to_string()).collect()
+}
+
 /// Clean up: removes what the window listed – as far as it still belongs to no program.
 fn clean_up(shared: &Shared, chosen: Vec<Trace>) {
-    let now = system::traces(false);
-    let (mut removed, mut failed) = (0, vec![]);
-    for trace in chosen.iter().filter(|t| now.contains(t)) {
-        match system::remove(trace) {
-            Ok(()) => removed += 1,
-            Err(why) => failed.push(why),
-        }
-    }
+    let listed = listed_ids(&lock(shared));
+    let now = system::traces(false, &listed);
+    let chosen: Vec<Trace> = chosen.into_iter().filter(|t| now.contains(t)).collect();
+    let (removed, failed) = system::remove_all(&chosen);
     let mut a = lock(shared);
     read_own(&mut a);
     for e in &mut a.programs {
@@ -754,10 +759,9 @@ fn clean_up(shared: &Shared, chosen: Vec<Trace>) {
 /// Uninstall all (DESIGN.md 9): every trace out of Windows, every program and the Toolbox ended, and the Toolbox's
 /// folder opened – deleting it is left to the user.
 fn uninstall(shared: &Shared) {
-    for trace in system::traces(true) {
-        if let Err(why) = system::remove(&trace) {
-            app::log(&format!("uninstall: {trace:?} could not be removed: {why}"));
-        }
+    let (_, failed) = system::remove_all(&system::traces(true, &[]));
+    for why in failed {
+        app::log(&format!("uninstall: not everything could be removed: {why}"));
     }
     let mut a = lock(shared);
     app::log("uninstalled: every entry in Windows removed, the Toolbox and all programs end");

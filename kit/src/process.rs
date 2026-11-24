@@ -176,6 +176,20 @@ fn shell_execute(verb: &str, target: &str, dir: Option<&Path>) -> bool {
     r as usize > 32
 }
 
+/// Starts a scheduled task (`setup::task_name`) – the way a program without admin rights starts something with
+/// them, without a prompt (DESIGN.md 10). `true` if Task Scheduler took it.
+pub fn run_task(name: &str) -> bool {
+    use std::os::windows::process::CommandExt;
+    std::process::Command::new("schtasks.exe")
+        .args(["/run", "/tn", name])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
 /// Opens a file, a folder or an address (`https://…`, `uplay://…`, `ms-settings:…`) with whatever Windows uses
 /// for it – like a double-click.
 pub fn open(target: &str) -> bool {

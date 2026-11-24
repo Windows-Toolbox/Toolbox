@@ -106,19 +106,24 @@ pub enum Trace {
     Autostart { id: String, target: Option<PathBuf> },
     /// The Start menu shortcut and the exe it starts.
     Shortcut { path: PathBuf, target: Option<PathBuf> },
+    /// What a program set up with admin rights (kit::setup, DESIGN.md 9): its task `\WindowsToolbox\<id>` and
+    /// its folder in `C:\Program Files\WindowsToolbox\`.
+    Setup { id: String },
 }
 
 impl Trace {
     pub fn target(&self) -> Option<&Path> {
         match self {
             Trace::Autostart { target, .. } | Trace::Shortcut { target, .. } => target.as_deref(),
+            Trace::Setup { .. } => None,
         }
     }
 }
 
 /// What there is. `everything`: all of it (Uninstall all); otherwise only what belongs to no program any more – its
-/// exe is gone (Clean up). A moved program's entry is not among them: the agent points it at the new place first.
-pub fn traces(everything: bool) -> Vec<Trace> {
+/// exe is gone, or, for a setup, its id is not on the list (`listed`) (Clean up). A moved program's entry is not
+/// among them: the agent points it at the new place first.
+pub fn traces(everything: bool, listed: &[String]) -> Vec<Trace> {
     let mut found = vec![];
     for id in autostart::all() {
         let target = autostart::read(&id).target;
@@ -133,7 +138,32 @@ pub fn traces(everything: bool) -> Vec<Trace> {
             found.push(Trace::Shortcut { path, target });
         }
     }
+    for id in kit::setup::installed() {
+        if everything || !listed.contains(&id) {
+            found.push(Trace::Setup { id });
+        }
+    }
     found
+}
+
+/// Takes traces out of Windows – all setups together, so Windows asks for admin rights only once. The reasons of
+/// what failed.
+pub fn remove_all(traces: &[Trace]) -> (usize, Vec<String>) {
+    let (mut removed, mut failed) = (0, vec![]);
+    let setups: Vec<String> = traces.iter().filter_map(|t| if let Trace::Setup { id } = t { Some(id.clone()) } else { None }).collect();
+    for trace in traces.iter().filter(|t| !matches!(t, Trace::Setup { .. })) {
+        match remove(trace) {
+            Ok(()) => removed += 1,
+            Err(why) => failed.push(why),
+        }
+    }
+    if !setups.is_empty() {
+        match kit::setup::remove_all(&setups) {
+            Ok(()) => removed += setups.len(),
+            Err(why) => failed.push(why),
+        }
+    }
+    (removed, failed)
 }
 
 /// Takes one trace out of Windows.
@@ -144,6 +174,7 @@ pub fn remove(trace: &Trace) -> Result<(), String> {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
             _ => Ok(()),
         },
+        Trace::Setup { id } => kit::setup::remove_all(std::slice::from_ref(id)),
     }
 }
 
