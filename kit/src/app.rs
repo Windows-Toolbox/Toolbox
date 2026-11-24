@@ -411,7 +411,7 @@ fn own_icon<P: Program>(rt: Runtime<P>) {
                         icon.remove_icon(OWN_ICON);
                     }
                 }
-                tray::Event::LeftClick => settings::<P>(&name),
+                tray::Event::LeftClick(_) => settings::<P>(&name),
                 tray::Event::Menu => {
                     let tray = rt.lock().program.tray();
                     let mut items = vec![];

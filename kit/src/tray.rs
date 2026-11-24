@@ -17,7 +17,8 @@ const WM_WAKE: u32 = WM_APP + 2;
 const NIN_KEYSELECT: u32 = NIN_SELECT | 1;
 
 pub enum Event {
-    LeftClick,
+    /// A click on the icon with this uid.
+    LeftClick(u32),
     /// The user wants the menu; return its entries. The chosen id comes back as `Chosen`.
     Menu,
     Chosen(u32),
@@ -46,8 +47,9 @@ impl Item {
 pub enum Icon<'a> {
     /// The icon compiled into the exe (`kit::build::manifest()`).
     Program,
-    /// 1–3 characters in a colour (0x00BBGGRR) on transparent ground.
-    Text(&'a str, u32),
+    /// 1–3 characters in a colour (0x00BBGGRR) on transparent ground, optionally with a stripe under them
+    /// (0x00RRGGBB).
+    Text(&'a str, u32, Option<u32>),
 }
 
 /// Wakes the tray thread from any thread (posts a message; the loop sleeps otherwise).
@@ -102,7 +104,7 @@ impl Tray {
         n.uCallbackMessage = WM_TRAY;
         n.hIcon = match icon {
             Icon::Program => program_icon(unsafe { GetSystemMetrics(SM_CXSMICON) }),
-            Icon::Text(text, color) => text_icon(text, color),
+            Icon::Text(text, color, stripe) => text_icon(text, color, stripe),
         };
         copy_tip(&mut n.szTip, tip);
         unsafe {
@@ -152,7 +154,7 @@ pub fn program_icon(size: i32) -> HICON {
 }
 
 /// A 32×32 icon showing `text` (1–3 characters) in `color` (0x00BBGGRR) on transparent ground.
-pub fn text_icon(text: &str, color: u32) -> HICON {
+pub fn text_icon(text: &str, color: u32, stripe: Option<u32>) -> HICON {
     unsafe {
         let size = 32;
         let screen = GetDC(null_mut());
@@ -175,7 +177,8 @@ pub fn text_icon(text: &str, color: u32) -> HICON {
         SetBkMode(dc, TRANSPARENT as i32);
         // Draw white, then use the brightness as alpha and colour the pixel: smooth edges without ClearType fringes.
         SetTextColor(dc, 0x00FFFFFF);
-        let mut r = RECT { left: 0, top: 0, right: size, bottom: size };
+        // With a stripe the number moves up a little to make room for it.
+        let mut r = RECT { left: 0, top: 0, right: size, bottom: if stripe.is_some() { size - 4 } else { size } };
         let w: Vec<u16> = text.encode_utf16().collect();
         DrawTextW(dc, w.as_ptr(), w.len() as i32, &mut r, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
         GdiFlush();
@@ -183,6 +186,15 @@ pub fn text_icon(text: &str, color: u32) -> HICON {
         for p in px.iter_mut() {
             let a = (*p & 0xff).max((*p >> 8) & 0xff).max((*p >> 16) & 0xff);
             *p = (a << 24) | ((cr * a / 255) << 16) | ((cg * a / 255) << 8) | (cb * a / 255);
+        }
+        // The stripe: the bottom 4 rows, with a pixel of room on each side and rounded ends (BGRA in memory).
+        if let Some(rgb) = stripe {
+            for y in size - 4..size {
+                let inset = if y == size - 4 || y == size - 1 { 5 } else { 4 };
+                for x in inset..size - inset {
+                    px[(y * size + x) as usize] = 0xff00_0000 | (rgb & 0x00ff_ffff);
+                }
+            }
         }
         SelectObject(dc, oldf);
         DeleteObject(font);
@@ -241,7 +253,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             match (lp & 0xffff) as u32 {
                 // A click with the mouse, or Enter on the icon when it was reached with the keyboard.
                 WM_LBUTTONUP | NIN_KEYSELECT => {
-                    dispatch(Event::LeftClick);
+                    // …and the high word the icon's uid.
+                    dispatch(Event::LeftClick(((lp >> 16) & 0xffff) as u32));
                 }
                 WM_CONTEXTMENU => {
                     let items = dispatch(Event::Menu);

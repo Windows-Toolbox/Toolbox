@@ -115,6 +115,10 @@ pub struct Live {
     /// At most 3 characters.
     pub text: String,
     pub state: Health,
+    /// A coloured stripe under the number (0xRRGGBB) – tells two displays apart, e.g. CPU (blue) and GPU (green).
+    /// Added 2026-11-24; an older Toolbox shows the number without it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stripe: Option<u32>,
 }
 
 /// Sent to the agent's pipe `windows-toolbox.toolbox` (no `hello` needed).

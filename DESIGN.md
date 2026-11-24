@@ -527,10 +527,14 @@ The same status lines are the icon's tooltip, so hovering shows the temperatures
 
 **The temperatures.** The Hardware Monitor's two icons *are* its display: numbers you read without touching
 the mouse. Under a single Toolbox icon they are one hover or one click away instead. For that reason a program can
-also declare **live displays** – a short text and a colour, e.g. `52` in green – and the Toolbox can show them as
-additional small icons next to its own. They are still the Toolbox's icons (same click, same menu), not the
-program's. One switch on the Hardware Monitor page, "Temperatures in the taskbar", turns them on. Default: **off**
-(opt-in, section 2).
+also declare **live displays** – a short text, a colour and optionally a coloured stripe under it, e.g. `52` in
+green over a blue stripe (CPU) – and the Toolbox shows them as additional small icons next to its own. They are
+the Toolbox's icons (its menu on a right click), but they belong to their program: the tooltip is that program's
+status line, and a left click sends that program `show` – its own window, or its page (changed 2026-11-24 after
+the hand test: "same click as the Toolbox icon" opened the Toolbox, which nobody wants from a temperature). The
+agent may let the program come to the front for it (`AllowSetForegroundWindow`). One switch on the Hardware
+Monitor page, "Temperatures in the taskbar", turns them on. Default: **off** (opt-in, section 2). Windows lists
+them as "Windows Toolbox" in its taskbar settings – it names an icon after its exe.
 
 **Without the Toolbox** a background program must still be reachable (how else to quit it?). Rule in `kit::app`:
 while its workers run and no Toolbox agent carries its tray menu for 1.5 s (a Toolbox that is there connects within
@@ -937,10 +941,16 @@ Four steps, each tested by hand before it is committed; the Python monitor runs 
    LHM closed when the connection ends, gone after a minute without one. Set up / Test / Uninstall as a preview
    section on the page; Clean up and Uninstall all know tasks and protected folders. Measured on the developer
    PC: connected 0.1 s after the start, CPU and GPU open in 0.7 s, one read 90 ms.
-2. **The monitor without a window**: temperatures through the bridge (Nvidia through `nvml.dll`), status line and
-   live displays, rates, efficiency mode, privacy mode, fan curves applied, power estimate and log, the smart plug
-   (Anker SOLIX Smart Plug Gen 2: Modbus TCP, port 502, found by mDNS `_anker_power._udp.local`) – the same
-   settings file, so curves and the power log carry over.
+2. **The monitor without a window** – done 2026-11-24, as a preview: the switch "Use the Rust version" on the page
+   (off by default) makes Start run the Rust monitor instead of the Python one, also while running, never both.
+   Temperatures through the bridge (each round only the CPU; Nvidia through `nvml.dll`), status line and live
+   displays (CPU blue, GPU green stripe), rates, efficiency mode, privacy mode in the tray menu, fan curves
+   applied (`fans.rs`, the rules of `fans.py`), power estimate and log in the Python format, the smart plug
+   (Anker SOLIX Smart Plug Gen 2: Modbus TCP, port 502, found by mDNS `_anker_power._udp.local`; its own log
+   `hardware_monitor_plug.json` from the plug's kWh counter, so time without the monitor is counted too) – the
+   same settings file, so curves and the power log carry over. Hand test passed. `cargo test real -- --ignored`
+   reads bridge and plug for real (sets no fan). The bridge is compiled only when its source changed: this csc
+   gives other bytes every time, and other bytes are "outdated" for Set up.
 3. **The detail window** in egui, its content in `detail_window.json`; the fans tab first as it is, then rethought
    with the user.
 4. **Python out**: `python\` deleted, the old task `HardwareMonitor` removed by "Set up", README, release 3.0.0.
@@ -1287,8 +1297,8 @@ they are built and written back here.
 | `proto` | `Command`, `State`, `Status`, `Health`, `Tray`, `MenuEntry`, `Live`, `ToolboxHello`, `Want`, `AgentCommand`, `PROTOCOL` – the messages of 15.1 as serde types |
 | `ipc` | `pipe_name(id)` · `Server::bind(id)` (`AlreadyExists` = runs already) · `Server::accept()` · `connect(id)` · `connect_wait(id, timeout)` · `exists(id)` · `Conn::{send, send_line, read, read_line, close}` · `TOOLBOX` · `sandbox()` |
 | `ui` | `theme(ctx, theme, zoom)` · `THEMES` · `PageView::show(ui, &Page) -> Vec<Command>` · `Toast::{show, ui}` · `link_target(&response, target)` / `hovered_target(ctx)` – the bottom bar · `viewport(title)` – how every window starts out · `use_program_icon()` · `no_window(title, error)` – the message when OpenGL is missing · `heading(ui, text)` · `section(ui, title, salt, add)` · `hint(ui, text)` · `bar_button(ui, text, chosen)` – the editor's building blocks · `ACCENT`, `GOOD`, `WARN`, `BAD`, `accent()`, `good()`, `warn()`, `bad()`, `muted()`, `health_color()` |
-| `tray` | `create(handler) -> Waker` · `run_loop()` · `Tray::{set_icon(uid, Icon, tip), remove_icon, quit}` – setting what an icon shows already costs nothing · `Icon::{Program, Text(text, color)}` · `program_icon(size)` · `text_icon(text, color)` · `Event`, `Item` · `forget(uid)` – removes an icon at once from any thread, for a process about to end (otherwise it stays until the mouse passes over it) |
-| `process` | `Job::{create, open, spawn, active_processes, terminate}` · `job_name(id)` · `spawn(exe, args)` – without a console window · `open(target)` – a file, a folder, an address · `copy_text(text)` – the clipboard, for a page's "Copy" button · `wait_exit(pid, timeout)` · `running(exe) -> pids` · `quote(arg)` · `run_task(name)` – a scheduled task, through `schtasks /run` (M4). Still to come: `efficiency_mode()` (section 11) |
+| `tray` | `create(handler) -> Waker` · `run_loop()` · `Tray::{set_icon(uid, Icon, tip), remove_icon, quit}` – setting what an icon shows already costs nothing · `Icon::{Program, Text(text, color, stripe)}` · `program_icon(size)` · `text_icon(text, color, stripe)` · `Event::{LeftClick(uid), Menu, Chosen, Wake}`, `Item` · `forget(uid)` – removes an icon at once from any thread, for a process about to end (otherwise it stays until the mouse passes over it) |
+| `process` | `Job::{create, open, spawn, active_processes, terminate}` · `job_name(id)` · `spawn(exe, args)` – without a console window · `open(target)` – a file, a folder, an address · `copy_text(text)` – the clipboard, for a page's "Copy" button · `wait_exit(pid, timeout)` · `running(exe) -> pids` · `quote(arg)` · `run_task(name)` – a scheduled task, through `schtasks /run` (M4) · `efficiency_mode(on)` – Windows 11's efficiency mode and idle priority for this process (M4) |
 | `i18n` | `t!("id")`, `t!("id", name = value)` · `texts!()` – loads the program's `assets\i18n.json` · `LANGUAGES` · `set_language(lang)` · `language()` · `system_language()` · `check_ids(crate_dir)` for the test |
 | `manifest` | `Manifest::read(folder)` (`dist\program.json`, else `program.json`) · `Manifest::find(folder)` – the folder or one level below it · `Manifest::kind() -> Script/Kit/Exe` (a manifest without `run` and `exe` is refused) · `Text::{get(lang), key()}` · `ScriptOption` |
 | `build` | `build::manifest()` for `build.rs` (15.4): `program.json`, the facts for `meta!()`, and the resource with icon, name and version – written by hand as a `.res` file, so no resource compiler has to be installed |

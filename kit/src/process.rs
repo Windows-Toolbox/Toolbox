@@ -176,6 +176,19 @@ fn shell_execute(verb: &str, target: &str, dir: Option<&Path>) -> bool {
     r as usize > 32
 }
 
+/// Windows 11's efficiency mode for this process (the leaf in Task Manager): on, Windows runs it power-efficiently
+/// (EcoQoS – low clock, on hybrid CPUs the efficiency cores) and with the lowest priority – enough for a program
+/// that only looks at sensors in the background. Off: normal again. Older Windows versions ignore it.
+pub fn efficiency_mode(on: bool) {
+    const EXECUTION_SPEED: u32 = 1; // PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+    let state = PROCESS_POWER_THROTTLING_STATE { Version: 1, ControlMask: EXECUTION_SPEED, StateMask: if on { EXECUTION_SPEED } else { 0 } };
+    unsafe {
+        let me = GetCurrentProcess();
+        SetProcessInformation(me, ProcessPowerThrottling, &state as *const _ as *const _, size_of_val(&state) as u32);
+        SetPriorityClass(me, if on { IDLE_PRIORITY_CLASS } else { NORMAL_PRIORITY_CLASS });
+    }
+}
+
 /// Starts a scheduled task (`setup::task_name`) – the way a program without admin rights starts something with
 /// them, without a prompt (DESIGN.md 10). `true` if Task Scheduler took it.
 pub fn run_task(name: &str) -> bool {

@@ -889,6 +889,18 @@ fn import(shared: &Shared, file: PathBuf) {
 
 // ---------- the window ----------
 
+/// `show` to a running program – it opens its own window, or asks for its page. It may come to the front for it:
+/// the click happened here.
+fn show_program(a: &mut Agent, id: &str) {
+    unsafe { AllowSetForegroundWindow(ANY_PROCESS) };
+    match a.links.get(id) {
+        Some(link) => {
+            let _ = link.conn.send(&Command::Show);
+        }
+        None => open_window(a, Some(id.to_string())),
+    }
+}
+
 /// Opens the window – or brings the open one to the front – on this program's page if given.
 fn open_window(a: &mut Agent, id: Option<String>) {
     // The click happened here (tray) or in a second start of the exe; the window is another process and may
@@ -1129,27 +1141,36 @@ fn health_color(state: Health) -> u32 {
     }
 }
 
-/// The Toolbox icon with every running program's status line as its tooltip, and the live displays next to it.
-/// `live_shown`: how many live displays there were the last time.
-fn show_icons(a: &Agent, tray: &mut Tray, live_shown: &mut u32) {
+/// Every running program's status line ("Name: line"), and its live displays with their program's id – in the
+/// order of the list, at most 3 per program. The n-th display is the icon `ICON_FIRST_LIVE + n`.
+fn lines_and_live(a: &Agent) -> (Vec<String>, Vec<(String, String, kit::proto::Live)>) {
     let language = i18n::language();
-    let mut tip = String::from("Windows Toolbox");
-    let mut live = vec![];
+    let (mut lines, mut live) = (vec![], vec![]);
     for e in &a.programs {
         let Some(link) = a.links.get(e.id()) else { continue };
         if e.run.running != Some(true) {
             continue;
         }
+        let name = e.manifest.name.get(&language);
         let line = if link.tray.line.is_empty() { &e.run.text } else { &link.tray.line };
+        let own = if line.is_empty() { name.to_string() } else { format!("{name}: {line}") };
         if !line.is_empty() {
-            tip += &format!("\n{}: {line}", e.manifest.name.get(&language));
+            lines.push(own.clone());
         }
-        live.extend(link.tray.live.iter().take(3).cloned());
+        live.extend(link.tray.live.iter().take(3).map(|d| (e.id().to_string(), own.clone(), d.clone())));
     }
+    (lines, live)
+}
+
+/// The Toolbox icon with every running program's status line as its tooltip, and the live displays next to it –
+/// each with its own program's line. `live_shown`: how many live displays there were the last time.
+fn show_icons(a: &Agent, tray: &mut Tray, live_shown: &mut u32) {
+    let (lines, live) = lines_and_live(a);
+    let tip = std::iter::once("Windows Toolbox".to_string()).chain(lines).collect::<Vec<_>>().join("\n");
     tray.set_icon(ICON_TOOLBOX, Icon::Program, &tip);
-    for (i, display) in live.iter().enumerate() {
+    for (i, (_, own, display)) in live.iter().enumerate() {
         let text: String = display.text.chars().take(3).collect();
-        tray.set_icon(ICON_FIRST_LIVE + i as u32, Icon::Text(&text, health_color(display.state)), &tip);
+        tray.set_icon(ICON_FIRST_LIVE + i as u32, Icon::Text(&text, health_color(display.state), display.stripe), own);
     }
     for i in live.len() as u32..*live_shown {
         tray.remove_icon(ICON_FIRST_LIVE + i);
@@ -1357,7 +1378,15 @@ pub fn run(open: bool) {
                         show_icons(&a, tray, &mut live_shown);
                     }
                 }
-                Event::LeftClick => open_window(&mut lock(&shared), None),
+                // A live display belongs to its program: the click shows that program (its window, or its page).
+                Event::LeftClick(uid) => {
+                    let mut a = lock(&shared);
+                    let owner = uid.checked_sub(ICON_FIRST_LIVE).and_then(|n| lines_and_live(&a).1.into_iter().nth(n as usize)).map(|(id, _, _)| id);
+                    match owner {
+                        Some(id) => show_program(&mut a, &id),
+                        None => open_window(&mut a, None),
+                    }
+                }
                 Event::Menu => {
                     let mut a = lock(&shared);
                     // The menu shows what is true now, also for what does not report by itself.
