@@ -6,8 +6,8 @@ section 15.
 
 Decisions taken:
 
-- **Everything is Rust.** The Toolbox and every program of ours; the last Python code (the Hardware Monitor's
-  monitor, inside its repo) is ported next (section 10).
+- **Everything is Rust.** The Toolbox and every program of ours; the last Python code, the Hardware Monitor's
+  monitor, was ported in M4 (2026-11-24, section 10). Only its small bridge to LibreHardwareMonitor is C#.
 - The look is the one of the **Last Bastion map editor**: egui (panels, lists, fields).
 - **Settings of all programs are shown and changed in the Toolbox window** (like Steam's library) and take effect
   in the running program immediately. The program defines its page; the Toolbox displays it (section 4.4).
@@ -43,8 +43,8 @@ missing falls into three groups:
 - **Installing and updating without building.** Today every program is built from its repo or unpacked by hand.
   The goal: download the Toolbox once, get every program with one click ("Get programs"), update each one from
   its signed release (section 9).
-- **The Hardware Monitor in Rust.** The last Python code; with it come the bridge, the setup steps and the
-  remaining page blocks (sections 4.5, 9, 10).
+- **The Hardware Monitor in Rust** – done (M4, v3.0.0): the bridge, the setup steps, the detail window drawn in
+  egui (sections 4.5, 9, 10).
 - **The rest of the Toolbox's frame**: restart after a crash, setup and uninstall per program, export / import of
   all settings, clean up, the Start menu shortcut (sections 8, 9).
 
@@ -812,7 +812,7 @@ asks for it (other programs may use the same driver).
 | **Steam Shortcuts** | kit program, background | done |
 | **Cube Game** | kit program without background role: Play runs the game on the worker's thread until the window closes (`Runtime::stop`) | done (Rust; own Win32 windows + tiny-skia, not macroquad – the window *is* the arena) |
 | **Last Bastion** | external exe | done – its `program.json` lies in its repo |
-| **Hardware Monitor** | kit program, background | Rust program around the Python monitor; the port is next – see below and section 11 |
+| **Hardware Monitor** | kit program, background; its detail window is the same exe in a second role | done (Rust, v3.0.0; the bridge `LhmBridge.exe` in C#) – see below and section 11 |
 
 Each program's README holds its details and its checklist (section 14).
 
@@ -822,7 +822,7 @@ Each program's README holds its details and its checklist (section 14).
 downloaded in a pinned version with checksum, and updated by changing version + URL + SHA-256 in one place.
 PawnIO likewise. Only our own code (~240 KB of Python around it) is rewritten.
 
-The question is only how Rust *calls* a .NET library – the Python monitor uses pythonnet:
+The question was only how Rust *calls* a .NET library – the Python monitor used pythonnet:
 
 | | How | For | Against |
 |---|---|---|---|
@@ -834,7 +834,7 @@ that shortcut moves to Rust unchanged.
 
 ### Admin rights: only the bridge
 
-The Python monitor runs as a whole with admin rights (CPU and mainboard sensors need them) and takes commands on
+The Python monitor ran as a whole with admin rights (CPU and mainboard sensors need them) and took commands on
 a TCP port – any program of your user could send them too. The Rust monitor:
 
 ```
@@ -915,10 +915,9 @@ and Last Bastion, M3 Discord Plus, M5 Cube Game, plus Screen Zones and Steam Sho
 - **Still open**: a kit program that runs without a Toolbox offers no update itself yet (section 9 says it
   should).
 
-**M4 – Hardware Monitor in Rust.** Today its repo holds a Rust program that connects the Python monitor to the
-Toolbox (page, Start/Stop, status, settings); the monitor itself – sensors, tray icons, detail window – is still
-Python with its own runtime, started with admin rights through a task. The port, from the checklist in its README
-(section 14):
+**M4 – Hardware Monitor in Rust** – done 2026-11-24 (v3.0.0). Before, its repo held a Rust program that connected
+the Python monitor to the Toolbox (page, Start/Stop, status, settings); the monitor itself – sensors, tray icons,
+detail window – was Python with its own runtime, started with admin rights through a task. The port:
 
 - the C# bridge as the only elevated part, installed into the protected folder (section 10);
 - the monitor without admin rights; status line and live displays through the Toolbox's tray (section 6 – the
@@ -930,9 +929,7 @@ Python with its own runtime, started with admin rights through a task. The port,
 - an **Open** entry for a program's own window in the tray menu;
 - `kit::process::run_task(name)` and `efficiency_mode()`.
 
-Then Python leaves the Hardware Monitor's repo too.
-
-Four steps, each tested by hand before it is committed; the Python monitor runs until the last one
+Four steps, each tested by hand before it was committed; the Python monitor ran until the last one
 (plan agreed 2026-11-24):
 
 1. **The bridge and `kit::setup`** – done 2026-11-24. `bridge\LhmBridge.cs` (C# 5, built by `build.ps1` with the
@@ -951,9 +948,19 @@ Four steps, each tested by hand before it is committed; the Python monitor runs 
    same settings file, so curves and the power log carry over. Hand test passed. `cargo test real -- --ignored`
    reads bridge and plug for real (sets no fan). The bridge is compiled only when its source changed: this csc
    gives other bytes every time, and other bytes are "outdated" for Set up.
-3. **The detail window** in egui, its content in `detail_window.json`; the fans tab first as it is, then rethought
-   with the user.
-4. **Python out**: `python\` deleted, the old task `HardwareMonitor` removed by "Set up", README, release 3.0.0.
+3. **The detail window** – done 2026-11-24: `HardwareMonitor.exe --window [tab]`, a process of its own that tells
+   the monitor over a pipe what it shows (`link.rs`) and gets one state per round; closed, it gives all its memory
+   back. egui, its content in `detail_window.json`. The list tabs (select, copy, fold, explanations), Power (bar
+   chart; with the plug a switch between measured and estimated), Fans (the curve editor, as in Python for now – to
+   be rethought with the user), Drive health (the rules of CrystalDiskInfo, in Rust) and Hardware data
+   (`LhmBridge.exe --hardware-data`: WMI and DXCore as JSON on stdout, without admin rights; what it means is worked
+   out in Rust). Found on the way: a nudge that came while the worker was busy was lost (`Runtime::sleep`), and a
+   pipe client gone before `accept` blocked the server for good – both fixed in the kit.
+4. **Python out** – done 2026-11-24: `python\` deleted, the switch "Use the Rust version" and everything that talked
+   to the Python part gone. Fan curves and the window's place moved into `settings.json` (taken over once from
+   `hardware_monitor.json`). The old task `HardwareMonitor` is removed with v2's "Remove setup" before updating –
+   only the developer's PCs ever had it. The release zip holds exe, bridge, manifest, README and
+   `detail_window.json`.
 
 **M6 – the rest of the frame** (built 2026-11-22, Toolbox v2.1.0):
 
@@ -1004,8 +1011,8 @@ verified.
   is edited often stays in data files for that reason (detail window, i18n during development).
 - **Pages are limited to the kit's building blocks**; 4.5 describes the ways past that.
 - **Temperatures are no longer always visible** with a single tray icon, unless the live displays are switched on.
-- **The Hardware Monitor port is real work** and carries a technical risk (calling the .NET library through an
-  elevated bridge – M0 tested the whole path).
+- **The Hardware Monitor port was real work** (M4) – the technical risk, calling the .NET library through an
+  elevated bridge, did not bite: M0 tested the path, M4 built on it.
 - **Unsigned downloads**: Windows may warn at the first start of a downloaded program (section 9).
 
 ### Open decisions
