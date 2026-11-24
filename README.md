@@ -23,7 +23,7 @@ Each program's README describes how to set it up, use it and how it works.
 
 ## Getting started
 
-**From a release** (from v2.0.0 on): download `toolbox-<version>.zip` from the
+**From a release**: download `toolbox-<version>.zip` from the
 [releases](https://github.com/Windows-Toolbox/Toolbox/releases), unpack it into a folder of its own (not inside
 *Program Files*) and double-click `Toolbox.exe`. The exe is not signed (that costs money), so Windows SmartScreen
 may warn once at the first start: *More info → Run anyway*. Programs then come with one click under **Get

@@ -2990,7 +2990,7 @@ dependencies = [
 
 [[package]]
 name = "toolbox"
-version = "2.1.2"
+version = "1.0.0"
 dependencies = [
  "ed25519-dalek",
  "eframe",

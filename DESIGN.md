@@ -43,7 +43,7 @@ missing falls into three groups:
 - **Installing and updating without building.** Today every program is built from its repo or unpacked by hand.
   The goal: download the Toolbox once, get every program with one click ("Get programs"), update each one from
   its signed release (section 9).
-- **The Hardware Monitor in Rust** – done (M4, v3.0.0): the bridge, the setup steps, the detail window drawn in
+- **The Hardware Monitor in Rust** – done (M4, 2026-11-24): the bridge, the setup steps, the detail window drawn in
   egui (sections 4.5, 9, 10).
 - **The rest of the Toolbox's frame**: restart after a crash, setup and uninstall per program, export / import of
   all settings, clean up, the Start menu shortcut (sections 8, 9).
@@ -812,7 +812,7 @@ asks for it (other programs may use the same driver).
 | **Steam Shortcuts** | kit program, background | done |
 | **Cube Game** | kit program without background role: Play runs the game on the worker's thread until the window closes (`Runtime::stop`) | done (Rust; own Win32 windows + tiny-skia, not macroquad – the window *is* the arena) |
 | **Last Bastion** | external exe | done – its `program.json` lies in its repo |
-| **Hardware Monitor** | kit program, background; its detail window is the same exe in a second role | done (Rust, v3.0.0; the bridge `LhmBridge.exe` in C#) – see below and section 11 |
+| **Hardware Monitor** | kit program, background; its detail window is the same exe in a second role | done (Rust; the bridge `LhmBridge.exe` in C#) – see below and section 11 |
 
 Each program's README holds its details and its checklist (section 14).
 
@@ -901,6 +901,10 @@ and Last Bastion, M3 Discord Plus, M5 Cube Game, plus Screen Zones and Steam Sho
   welcome page ("Get programs …"). A click on "Get" loads the latest release, checks it against the key the
   signed list names, unpacks it into `programs\<id>\` next to `Toolbox.exe`, puts it on the list and shows its
   page. Checked for real on 2026-11-22 in a sandbox: the list from GitHub, then all five programs got.
+- **All releases again as 1.0.0** (2026-11-24): every earlier release and its tag was deleted on GitHub, and the
+  Toolbox and every program were released anew as v1.0.0 – a clean start now that everything is Rust. An installed
+  copy with a higher version (2.x, 3.0.0) does not see 1.0.0 as an update: such a PC gets the programs fresh. The
+  version numbers below are the history before that.
 - **The releases** (2026-11-22, all signed with the key of 15.6): Toolbox v2.0.0 (`release.ps1` and `RELEASE.md`
   in this repo, like every program's), Cube Game v2.0.0, Discord Plus v2.0.0, Hardware Monitor v2.0.0 (with
   `python\`, without `runtime\` and `lhm\` – "Set up" makes those), Steam Shortcuts v1.0.0; Screen Zones v1.0.0 was
@@ -915,7 +919,7 @@ and Last Bastion, M3 Discord Plus, M5 Cube Game, plus Screen Zones and Steam Sho
 - **Still open**: a kit program that runs without a Toolbox offers no update itself yet (section 9 says it
   should).
 
-**M4 – Hardware Monitor in Rust** – done 2026-11-24 (v3.0.0). Before, its repo held a Rust program that connected
+**M4 – Hardware Monitor in Rust** – done 2026-11-24. Before, its repo held a Rust program that connected
 the Python monitor to the Toolbox (page, Start/Stop, status, settings); the monitor itself – sensors, tray icons,
 detail window – was Python with its own runtime, started with admin rights through a task. The port:
 
