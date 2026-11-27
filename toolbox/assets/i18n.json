@@ -258,6 +258,10 @@
     "de": "{name}: „Mit Windows starten“ ließ sich nicht ändern – {why}",
     "en": "{name}: “Start with Windows” could not be changed – {why}"
   },
+  "toast.new_build": {
+    "de": "{name}: neue Version geladen",
+    "en": "{name}: new version loaded"
+  },
   "toast.did_not_stop": {
     "de": "{name} hat sich nicht beenden lassen.",
     "en": "{name} could not be stopped."

@@ -279,6 +279,13 @@ pub fn running(exe: &Path) -> Vec<u32> {
     pids
 }
 
+/// Does process `pid` run the file `exe` is now? `Some(false)`: it runs another file – an older build that was
+/// renamed to make way (`build.ps1`, an update: `X.<time>.old.exe`) while the new one took its name. Windows
+/// reports a running exe under its new name after a rename. `None`: the process is not there (or not readable).
+pub fn runs_from(pid: u32, exe: &Path) -> Option<bool> {
+    image_path(pid).map(|p| p.trim_start_matches(r"\\?\") == normalise(exe))
+}
+
 fn normalise(path: &Path) -> String {
     let full = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
     full.to_string_lossy().trim_start_matches(r"\\?\").replace('/', "\\").to_lowercase()
@@ -301,6 +308,15 @@ fn image_path(pid: u32) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// This test's own process runs from its own exe – and not from another file.
+    #[test]
+    fn a_process_and_its_exe() {
+        let me = std::env::current_exe().unwrap();
+        assert_eq!(runs_from(std::process::id(), &me), Some(true));
+        assert_eq!(runs_from(std::process::id(), &me.with_file_name("other.exe")), Some(false));
+        assert_eq!(runs_from(u32::MAX - 3, &me), None);
+    }
 
     #[test]
     fn quoting() {

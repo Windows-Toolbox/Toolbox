@@ -35,6 +35,10 @@ const ANY_PROCESS: u32 = u32::MAX;
 struct Link {
     conn: Arc<Conn>,
     tray: ProgramTray,
+    /// Its process, from its `hello`.
+    pid: Option<u32>,
+    /// Its first status was looked at: whether it runs an older build (`started_anew_if_old`).
+    checked: bool,
 }
 
 /// A connected window. Its lines are written by a thread of its own, so a window that has stopped reading can
@@ -235,7 +239,7 @@ fn follow(shared: &Shared, id: &str, first: Option<Command>) {
         if let Some(cmd) = &first {
             let _ = conn.send(cmd);
         }
-        a.links.insert(id.to_string(), Link { conn: conn.clone(), tray: ProgramTray::default() });
+        a.links.insert(id.to_string(), Link { conn: conn.clone(), tray: ProgramTray::default(), pid: None, checked: false });
     }
     let (shared, id) = (shared.clone(), id.to_string());
     std::thread::spawn(move || {
@@ -243,9 +247,20 @@ fn follow(shared: &Shared, id: &str, first: Option<Command>) {
         while let Some(state) = conn.read::<State>() {
             let mut a = lock(&shared);
             match state {
+                State::Hello { pid, .. } => {
+                    if let Some(link) = a.links.get_mut(&id) {
+                        link.pid = Some(pid);
+                    }
+                    continue;
+                }
                 State::Status(s) => {
+                    let running = s.running;
                     if let Some(e) = a.entry_mut(&id) {
                         e.run = Run { running: Some(s.running), state: s.state, text: s.text, ..Default::default() };
+                    }
+                    let first = a.links.get_mut(&id).is_some_and(|l| !std::mem::replace(&mut l.checked, true));
+                    if first && running && outdated(&a, &id) {
+                        started_anew_if_old(&mut a, &shared, &id);
                     }
                 }
                 State::Tray(tray) => {
@@ -324,6 +339,49 @@ fn follow_running(shared: &Shared) {
 
 // ---------- start, stop, restart ----------
 
+/// Does the program's process run an older build than its exe now is? `build.ps1` and an update rename the
+/// running exe and put the new one under its name – Stop and Start only switch the workers off and on, so without
+/// this the old build would keep running until the program is quit.
+fn outdated(a: &Agent, id: &str) -> bool {
+    let (Some(pid), Some(exe)) = (a.links.get(id).and_then(|l| l.pid), a.entry(id).and_then(Entry::exe)) else { return false };
+    exe.exists() && process::runs_from(pid, &exe) == Some(false)
+}
+
+/// A program the agent finds running an older build when it connects (after "Restart the Toolbox", or any start
+/// of the Toolbox): it is started again from the new exe, with its workers on as before.
+fn started_anew_if_old(a: &mut Agent, shared: &Shared, id: &str) {
+    app::log(&format!("{id} runs an older build – started again from the new one"));
+    let name = a.entry(id).map(name_of).unwrap_or_else(|| id.to_string());
+    a.toast(t!("toast.new_build", name = name), false);
+    act(shared, restart, id.to_string());
+}
+
+/// Asks a kit program to quit – over the agent's connection, or a new one (which must begin with `hello`, or the
+/// program closes it unheard).
+fn send_quit(shared: &Shared, id: &str) {
+    let (link, hello) = {
+        let a = lock(shared);
+        (a.links.get(id).map(|l| l.conn.clone()), a.hello())
+    };
+    match link {
+        Some(conn) => {
+            let _ = conn.send(&Command::Quit);
+        }
+        None => {
+            if let Ok(conn) = ipc::connect(id) {
+                let _ = conn.send(&Command::Hello(hello));
+                let _ = conn.send(&Command::Quit);
+            }
+        }
+    }
+}
+
+/// Quits a kit program and waits until it has ended. `false`: it did not end within five seconds.
+fn quit_program(shared: &Shared, id: &str) -> bool {
+    send_quit(shared, id);
+    wait_until(Duration::from_secs(5), || !ipc::exists(id))
+}
+
 /// Some of these wait (a restart waits until the program has ended), so each runs on a thread of its own.
 fn act(shared: &Shared, what: fn(&Shared, &str), id: String) {
     let shared = shared.clone();
@@ -350,8 +408,21 @@ fn start(shared: &Shared, id: &str) {
             // Its process may be there already, serving its page with the workers off: then `start` goes to that
             // very process instead of launching a second one (DESIGN.md 4.4).
             if lock(shared).links.contains_key(id) || ipc::exists(id) {
-                follow(shared, id, Some(Command::Start));
-            } else if let Some(exe) = entry.exe() {
+                // That process may be an older build (rebuilt or updated meanwhile): then it ends, and the new exe
+                // starts instead.
+                follow(shared, id, None);
+                wait_until(Duration::from_secs(1), || lock(shared).links.get(id).is_none_or(|l| l.pid.is_some()));
+                if !outdated(&lock(shared), id) {
+                    follow(shared, id, Some(Command::Start));
+                    return;
+                }
+                app::log(&format!("{id} runs an older build – Start starts the new one"));
+                if !quit_program(shared, id) {
+                    return lock(shared).toast(t!("toast.did_not_stop", name = name_of(&entry)), true);
+                }
+                lock(shared).toast(t!("toast.new_build", name = name_of(&entry)), false);
+            }
+            if let Some(exe) = entry.exe() {
                 // It announces itself (`started`) once its workers run.
                 if let Err(e) = process::spawn(&exe, &[]) {
                     failed(e.to_string());
@@ -415,12 +486,7 @@ fn wait_until(timeout: Duration, mut done: impl FnMut() -> bool) -> bool {
 fn restart(shared: &Shared, id: &str) {
     let Some(entry) = lock(shared).entry(id).cloned() else { return };
     let ended = match entry.kind {
-        Kind::Kit => {
-            if let Some(link) = lock(shared).links.get(id) {
-                let _ = link.conn.send(&Command::Quit);
-            }
-            wait_until(Duration::from_secs(5), || !ipc::exists(id))
-        }
+        Kind::Kit => quit_program(shared, id),
         Kind::Script => {
             stop(shared, id);
             wait_until(Duration::from_secs(5), || !script_running(id))
@@ -467,18 +533,7 @@ fn make_way(shared: &Shared, id: &str) -> bool {
         return false;
     }
     let ran = entry.run.running == Some(true);
-    let link = lock(shared).links.get(id).map(|l| l.conn.clone());
-    match link {
-        Some(conn) => {
-            let _ = conn.send(&Command::Quit);
-        }
-        None => {
-            if let Ok(conn) = ipc::connect(id) {
-                let _ = conn.send(&Command::Quit);
-            }
-        }
-    }
-    if !wait_until(Duration::from_secs(5), || !ipc::exists(id)) {
+    if !quit_program(shared, id) {
         app::log(&format!("{id} did not end before its update; its files are put aside"));
     }
     ran

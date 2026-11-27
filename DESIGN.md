@@ -482,6 +482,13 @@ One file, several ways it runs – so that the part that runs all day stays tiny
   2 s). Not "nobody at all": the agent is connected to every running program for status and tray, and would keep
   a stopped program alive forever (found in M0). That way exactly one process holds the pipe and writes
   `settings.json`, and Start can never mistake an open settings page for a running program.
+  **An older build** (2026-11-25): `build.ps1` and an update rename the running exe (`X.<time>.old.exe`) and put
+  the new one under its name. Windows then reports the running process under the new name, so the agent tells
+  (`process::runs_from(pid, exe)`, the pid from the program's `hello`): **Start** on a process of an older build
+  quits it and starts the new exe instead of switching its workers on; and an agent that connects to a running
+  program of an older build (after "Restart the Toolbox", at any start of the Toolbox) starts it again from the new
+  exe – toast "new version loaded". Without this the old build kept running while the page was open (a stopped
+  program whose page is shown does not end).
 - **window role**: an egui window (the detail window; the settings page when there is no Toolbox). A second process
   of the same `.exe`, started by the background role on a click or on `show`; it ends when the window closes and
   gives all its memory back.

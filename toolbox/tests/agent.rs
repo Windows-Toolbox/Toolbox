@@ -253,6 +253,120 @@ fn a_kit_program_is_followed() {
     toolbox.wait_exit();
 }
 
+/// The program's exe for the two tests below: a copy of `PING.EXE` – it starts without a window and ends at once
+/// (without arguments it only prints how to use it). `running` also starts one that keeps running for a minute:
+/// a process that really runs from the program's exe.
+fn fake_exe(toolbox: &Toolbox, running: bool) -> (PathBuf, Option<Child>) {
+    use std::os::windows::process::CommandExt;
+    let exe = toolbox.root.join("Fake").join("Fake.exe");
+    std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+    std::fs::copy(Path::new(&std::env::var("WINDIR").unwrap()).join("System32").join("PING.EXE"), &exe).unwrap();
+    let child = running.then(|| Process::new(&exe).args(["-n", "60", "127.0.0.1"]).creation_flags(0x0800_0000).stdout(std::process::Stdio::null()).spawn().unwrap());
+    (exe, child)
+}
+
+const FAKE: &str = r#"{"id":"fake_kit","name":"Fake","exe":"Fake.exe","protocol":1,"background":true}"#;
+
+fn hello_of(conn: &Conn) {
+    match conn.read::<Command>().expect("the agent hung up") {
+        Command::Hello(_) => {}
+        other => panic!("the first message must be hello, not {other:?}"),
+    }
+}
+
+fn program_hello(conn: &Conn, pid: u32) {
+    conn.send(&State::Hello { protocol: 1, id: "fake_kit".into(), version: "1.0.0".into(), pid }).unwrap();
+}
+
+fn program_status(conn: &Conn, running: bool) {
+    conn.send(&State::Status(Status { running, state: Health::Ok, text: "ok".into() })).unwrap();
+}
+
+/// Start on a program whose process is there with its workers off: the same build gets `start`; an older build
+/// (its process no longer runs from the program's exe – `build.ps1` renamed it and put the new one in its place)
+/// is asked to quit, and the new exe is started.
+#[test]
+fn start_loads_a_new_build() {
+    let _turn = turn();
+    const ID: &str = "fake_kit";
+    let program = ipc::Server::bind(ID).unwrap();
+    let toolbox = Toolbox::start("newbuild");
+    let (_, current) = fake_exe(&toolbox, true);
+    let mut current = current.unwrap();
+    toolbox.write("Fake/program.json", FAKE);
+    let (window, _) = toolbox.window();
+    window.send(&json!({"type": "add", "folder": toolbox.root.join("Fake")})).unwrap();
+    let link = program.accept().unwrap();
+    hello_of(&link);
+    // The same build: its process runs from the program's exe.
+    program_hello(&link, current.id());
+    program_status(&link, false);
+    library(&window, |l| l["programs"][0]["run"]["running"] == false);
+    window.send(&json!({"type": "start", "id": ID})).unwrap();
+    assert_eq!(link.read::<Command>(), Some(Command::Start), "the same build: only its workers are switched on");
+    program_status(&link, true);
+    window.send(&json!({"type": "stop", "id": ID})).unwrap();
+    assert_eq!(link.read::<Command>(), Some(Command::Stop));
+    program_status(&link, false);
+    library(&window, |l| l["programs"][0]["run"]["running"] == false);
+
+    // Rebuilt meanwhile: this process (the test) does not run from Fake.exe.
+    program_hello(&link, std::process::id());
+    std::thread::sleep(Duration::from_millis(200));
+    window.send(&json!({"type": "start", "id": ID})).unwrap();
+    assert_eq!(link.read::<Command>(), Some(Command::Quit), "an older build is asked to quit");
+    link.send(&State::Bye).unwrap();
+    drop(link);
+    drop(program);
+    let text = until(&window, |told| (told["type"] == "toast").then(|| told["text"].as_str().unwrap_or_default().to_string()));
+    assert_eq!(text, "Fake: new version loaded");
+    let _ = current.kill();
+    let _ = current.wait();
+}
+
+/// When the agent starts ("Restart the Toolbox") and finds a program running an older build, it starts that
+/// program again from the new exe; one running the current build is left alone.
+#[test]
+fn a_restarted_toolbox_loads_new_builds() {
+    let _turn = turn();
+    const ID: &str = "fake_kit";
+    let program = ipc::Server::bind(ID).unwrap();
+    let toolbox = Toolbox::start("restartbuild");
+    let (_, current) = fake_exe(&toolbox, true);
+    let mut current = current.unwrap();
+    toolbox.write("Fake/program.json", FAKE);
+    let (window, _) = toolbox.window();
+    window.send(&json!({"type": "add", "folder": toolbox.root.join("Fake")})).unwrap();
+    let link = program.accept().unwrap();
+    hello_of(&link);
+    // The current build, running: nothing happens.
+    program_hello(&link, current.id());
+    program_status(&link, true);
+    library(&window, |l| l["programs"][0]["run"]["running"] == true);
+    drop(window);
+    drop(link);
+    drop(toolbox);
+
+    // The next agent finds it running an older build.
+    let toolbox = Toolbox::start("restartbuild2");
+    let _ = fake_exe(&toolbox, false);
+    toolbox.write("Fake/program.json", FAKE);
+    let (window, _) = toolbox.window();
+    window.send(&json!({"type": "add", "folder": toolbox.root.join("Fake")})).unwrap();
+    let link = program.accept().unwrap();
+    hello_of(&link);
+    program_hello(&link, std::process::id());
+    program_status(&link, true);
+    assert_eq!(link.read::<Command>(), Some(Command::Quit), "an older build that runs is started again");
+    link.send(&State::Bye).unwrap();
+    drop(link);
+    drop(program);
+    let text = until(&window, |told| (told["type"] == "toast").then(|| told["text"].as_str().unwrap_or_default().to_string()));
+    assert_eq!(text, "Fake: new version loaded");
+    let _ = current.kill();
+    let _ = current.wait();
+}
+
 /// "Start with Windows" for a background kit program: switched on and off from the window, an entry of another copy
 /// left alone, and taken away with the program when it leaves the list. In the sandbox the entries lie where
 /// Windows does not look.
